@@ -93,7 +93,7 @@ struct FreeChannelsButton: View {
             HStack(spacing: 14) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.title2)
-                    .foregroundStyle(FluxTint.horizontal)
+                    .foregroundStyle(.tint)
                     .frame(width: 32)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Regarder les chaînes gratuites").font(.headline).foregroundStyle(.primary)
