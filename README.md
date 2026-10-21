@@ -1,5 +1,8 @@
-![Flux on iPhone, Mac and Apple TV](header-apple.jpg)
-![Flux on Android and Android TV](header-android.jpg)
+<p>
+  <img src="header-apple.jpg" width="49%" alt="Flux on iPhone, Mac and Apple TV">
+  <img src="header-android.jpg" width="49%" alt="Flux on Android and Android TV">
+</p>
+
 # Flux
 Native IPTV player for Xtream Codes accounts (or their M3U link), made for the French market (for now): iPhone, iPad, Mac, Apple TV, Android and Android TV. Apple apps built 100% in Swift, Android apps in Kotlin.
 
