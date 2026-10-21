@@ -1,0 +1,4 @@
+-keepattributes *Annotation*, InnerClasses
+-keep,includedescriptorclasses class com.fares.flux.**$$serializer { *; }
+-keepclassmembers class com.fares.flux.** { *** Companion; }
+-keepclasseswithmembers class com.fares.flux.** { kotlinx.serialization.KSerializer serializer(...); }

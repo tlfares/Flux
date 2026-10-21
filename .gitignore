@@ -1,0 +1,19 @@
+.DS_Store
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.ipa
+*.apk
+*.aab
+
+# Android
+.gradle/
+.idea/
+.kotlin/
+local.properties
+*.iml
+FluxAndroid/output/
+FluxAndroid/**/build/
+*.jks
+*.keystore
