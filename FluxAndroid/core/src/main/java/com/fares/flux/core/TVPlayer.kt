@@ -33,6 +33,9 @@ class TVPlayer(context: Context, private val state: AppState) {
     var error by mutableStateOf<String?>(null); private set
     var isPaused by mutableStateOf(false); private set
     var isBuffering by mutableStateOf(false); private set
+    /** A frame of the stream playing is on screen: false from tuning until
+     *  the first one, while the picture is black. */
+    var hasPicture by mutableStateOf(false); private set
     var showsLive by mutableStateOf(false); private set
     var video by mutableStateOf<Video?>(null); private set
 
@@ -50,6 +53,8 @@ class TVPlayer(context: Context, private val state: AppState) {
 
     init {
         player.addListener(object : Player.Listener {
+            override fun onRenderedFirstFrame() { hasPicture = true }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
             }
@@ -102,6 +107,7 @@ class TVPlayer(context: Context, private val state: AppState) {
 
     private fun tune(group: ChannelGroup, variant: ChannelVariant) {
         val client = client ?: return
+        hasPicture = false
         tried += variant.id
         channel = group
         this.variant = variant
@@ -192,6 +198,7 @@ class TVPlayer(context: Context, private val state: AppState) {
 
     private fun stop() {
         resolving?.cancel()
+        hasPicture = false
         progressJob?.cancel()
         progressJob = null
         player.stop()

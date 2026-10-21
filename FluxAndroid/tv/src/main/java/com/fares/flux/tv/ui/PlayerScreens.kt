@@ -105,6 +105,10 @@ fun LiveScreen() {
     var showsList by remember { mutableStateOf(false) }
     var bannerShownAt by remember { mutableStateOf(System.currentTimeMillis()) }
     val focus = remember { FocusRequester() }
+    var playerView by remember { mutableStateOf<PlayerView?>(null) }
+    // The picture blurred under the banner, only while it's up.
+    // Black while zapping or loading: no frame of the new channel yet.
+    val backdrop = rememberVideoBackdrop(playerView, showsBanner && !showsList && player.hasPicture && player.error == null)
 
     fun show(on: Boolean) { showsBanner = on; if (on) bannerShownAt = System.currentTimeMillis() }
 
@@ -149,7 +153,7 @@ fun LiveScreen() {
             }
             .focusable()
     ) {
-        VideoSurface(controls = false, modifier = Modifier.fillMaxSize())
+        VideoSurface(controls = false, modifier = Modifier.fillMaxSize()) { playerView = it }
         if (player.isBuffering && player.error == null) {
             Text("Chargement…", Modifier.align(Alignment.Center), color = Secondary)
         }
@@ -161,7 +165,7 @@ fun LiveScreen() {
         }
         AnimatedVisibility(showsBanner && !showsList, Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
-            LiveBanner()
+            LiveBanner(backdrop)
         }
         if (player.isPaused) {
             Box(Modifier.align(Alignment.Center).size(70.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
@@ -182,7 +186,7 @@ fun LiveScreen() {
 
 /** The banner over the bottom of the picture: the channel, what's on, how far it's got and what's next. */
 @Composable
-private fun LiveBanner() {
+private fun LiveBanner(backdrop: VideoBackdrop) {
     val player = LocalTVPlayer.current
     val app = LocalApp.current
     val group = player.channel ?: return
@@ -192,10 +196,8 @@ private fun LiveBanner() {
     Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))) {
         Row(
             Modifier.padding(horizontal = 40.dp).padding(bottom = 30.dp, top = 60.dp).fillMaxWidth()
-                // Glass, as on the Apple TV: frosted (a video can't be blurred), its rim catching the light.
-                .background(Color(0xD91C1C24), RoundedCornerShape(22.dp))
-                .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.10f), Color.Transparent)), RoundedCornerShape(22.dp))
-                .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.35f), Color.White.copy(alpha = 0.05f))), RoundedCornerShape(22.dp))
+                // Glass, as on the Apple TV: the picture blurred behind, its rim catching the light.
+                .videoGlass(backdrop, RoundedCornerShape(22.dp))
                 .padding(horizontal = 22.dp, vertical = 17.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
