@@ -1,4 +1,4 @@
-![Flux on Apple and Android devices](header.jpg)
+![Flux on Apple and Android devices](banner.jpg)
 
 # Flux
 Native IPTV player for Xtream Codes accounts (or their M3U link), made for the French market (for now): iPhone, iPad, Mac, Apple TV, Android and Android TV. Apple apps built 100% in Swift, Android apps in Kotlin.
