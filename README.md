@@ -27,12 +27,12 @@ https://testflight.apple.com/join/Phqv7cn5
 Or grab the .ipa (iPhone, iPad) from [Releases](https://github.com/tlfares/Flux/releases) and sideload it (AltStore, SideStore, Sideloadly…).
 
 ### Mac
-Download `Flux-macOS.zip` from [Releases](https://github.com/tlfares/Flux/releases), unzip it and move Flux to Applications. The app isn't notarized: on first launch, right-click → Open, or allow it in System Settings → Privacy & Security.
+Download the macOS .zip from [Releases](https://github.com/tlfares/Flux/releases), unzip it and move Flux to Applications. The app isn't notarized: on first launch, right-click → Open, or allow it in System Settings → Privacy & Security.
 
 ### Android / Android TV
 Download the right .apk from [Releases](https://github.com/tlfares/Flux/releases):
-- `Flux-Android.apk` for phones and tablets
-- `Flux-AndroidTV.apk` for Android TV / Google TV
+- `Flux-x.x-Android.apk` for phones and tablets
+- `Flux-x.x-AndroidTV.apk` for Android TV / Google TV
 
 Then install it (allow installs from unknown sources). On a TV, use an app like Downloader or `adb install`.
 
