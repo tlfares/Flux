@@ -351,6 +351,10 @@ fun SearchScreen() {
     }
 }
 
+/** Set by "Suivant" on the keyboard: the next field opens it again, so a
+ *  form is filled in one go. */
+private var keepTyping = false
+
 /** A text field that reads as a TV row: white border when focused. The
  *  keyboard opens only on OK, as with the TV's own fields: opened as soon as
  *  focus passed by, it took over the remote, and nothing beside the fields
@@ -376,18 +380,34 @@ fun TextInput(value: String, onChange: (String) -> Unit, placeholder: String, mo
             autoCorrectEnabled = false,
         ),
         keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-            onNext = { editing = false; keyboard?.hide(); focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) },
+            onNext = {
+                editing = false
+                keepTyping = true
+                focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
+                // Taken by the next field when it is one; a button leaves the keyboard closed.
+                keepTyping = false
+                keyboard?.hide()
+            },
             onDone = { editing = false; keyboard?.hide() },
         ),
-        // OK starts typing; left and right go to what's beside the field
-        // rather than moving the cursor.
-        modifier = modifier.onFocusChanged { focused = it.isFocused; if (!it.isFocused) editing = false }.onPreviewKeyEvent { event ->
+        // OK starts typing; until then, left and right go to what's beside
+        // the field. While typing, they move the cursor through the text.
+        modifier = modifier.onFocusChanged {
+            focused = it.isFocused
+            if (!it.isFocused) editing = false
+            else if (keepTyping) { keepTyping = false; editing = true }
+        }.onPreviewKeyEvent { event ->
             if (event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
             when (event.nativeKeyEvent.keyCode) {
                 android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER, android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ->
                     if (!editing) { editing = true; true } else false
-                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
-                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right)
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> !editing && focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> !editing && focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right)
+                // A single line: up and down leave it, typing or not.
+                android.view.KeyEvent.KEYCODE_DPAD_UP -> focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up)
+                android.view.KeyEvent.KEYCODE_DPAD_DOWN -> focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
+                // The keyboard closed already: back ends typing, and left and right go beside again.
+                android.view.KeyEvent.KEYCODE_BACK -> if (editing) { editing = false; keyboard?.hide(); true } else false
                 else -> false
             }
         },
