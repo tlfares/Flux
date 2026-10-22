@@ -235,7 +235,7 @@ actor PlutoTV {
 
     func streamURL(_ channel: String) async -> URL? {
         guard let session = try? await current() else { return nil }
-        return URL(string: "\(session.stitcher)/stitch/hls/channel/\(channel)/master.m3u8?\(session.params)&jwt=\(session.token)&masterJWTPassthrough=true")
+        return URL(string: "\(session.stitcher)/v2/stitch/hls/channel/\(channel)/master.m3u8?\(session.params)&jwt=\(session.token)&masterJWTPassthrough=true")
     }
 
     /// What's on now and next, from Pluto's guide.

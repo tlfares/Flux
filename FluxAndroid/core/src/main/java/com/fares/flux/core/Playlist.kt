@@ -454,7 +454,7 @@ object PlutoTV {
 
     suspend fun streamURL(channel: String): String? {
         val s = current() ?: return null
-        return "${s.stitcher}/stitch/hls/channel/$channel/master.m3u8?${s.params}&jwt=${s.token}&masterJWTPassthrough=true"
+        return "${s.stitcher}/v2/stitch/hls/channel/$channel/master.m3u8?${s.params}&jwt=${s.token}&masterJWTPassthrough=true"
     }
 
     private fun isoFormat() = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
