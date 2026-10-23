@@ -163,6 +163,12 @@ nonisolated struct LiveGuide: Sendable {
             if let base = parsed[i].backupOf, keys.contains(base), !keys.contains(base + "2") { parsed[i].key = base }
         }
 
+        // Radios kept apart from the TV channel of the same name: France
+        // Info the radio isn't franceinfo the channel.
+        let radioCategories = Set(section.categories.filter { c in
+            SearchIndex.fold(c.name).lowercased().split { !$0.isLetter && !$0.isNumber }.contains { $0 == "radio" || $0 == "radios" }
+        }.map(\.id))
+
         var groups: [ChannelGroup] = []
         var byKey: [String: Int] = [:]
         var names: [Int: [String]] = [:]
@@ -171,8 +177,9 @@ nonisolated struct LiveGuide: Sendable {
             var key = name.key
             var display = name.display
             var icon = channel.icon
-            // Known French channels by one name, whatever the spelling.
-            if name.country.uppercased() == "FR", let known = FrenchChannels.known(name.key) {
+            if let category = channel.categoryID, radioCategories.contains(category) {
+                key = "radio|" + key
+            } else if name.country.uppercased() == "FR", let known = FrenchChannels.known(name.key) {
                 key = known.key
                 display = known.name
                 icon = known.logo ?? icon

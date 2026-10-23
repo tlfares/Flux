@@ -172,6 +172,9 @@ class LiveGuide private constructor(
                 if (base in keys && (base + "2") !in keys) parsed[i] = parsed[i].copy(key = base)
             }
 
+            // Radios kept apart from the TV channel of the same name: France Info the radio isn't franceinfo the channel.
+            val radioCategories = section.categories.filter { c -> ChannelName.foldText(c.name).split(Regex("[^a-z0-9]+")).any { it == "radio" || it == "radios" } }.map { it.id }.toHashSet()
+
             class Building(val id: String, var name: String, var icon: String?, val variants: MutableList<ChannelVariant>)
             val building = mutableListOf<Building>()
             val byKey = HashMap<String, Int>()
@@ -181,8 +184,10 @@ class LiveGuide private constructor(
                 var key = name.key
                 var display = name.display
                 var icon = channel.icon
+                val radio = channel.categoryID in radioCategories
+                if (radio) key = "radio|$key"
                 // Known French channels by one name, whatever the spelling.
-                if (name.country.uppercase() == "FR") FrenchChannels.known(name.key)?.let {
+                else if (name.country.uppercase() == "FR") FrenchChannels.known(name.key)?.let {
                     key = it.key; display = it.name; icon = it.logo ?: icon
                 }
                 val variant = ChannelVariant(channel, name.quality, name.delay)

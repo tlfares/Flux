@@ -77,6 +77,8 @@ import com.fares.flux.core.Programme
 import com.fares.flux.core.nowSeconds
 import com.fares.flux.core.tr
 import kotlinx.coroutines.delay
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.foundation.layout.offset
 
 /** The picture alone, for the live screen, which draws its own controls. */
 @OptIn(UnstableApi::class)
@@ -170,6 +172,7 @@ fun LiveScreen() {
             .focusable()
     ) {
         VideoSurface(controls = false, modifier = Modifier.fillMaxSize()) { playerView = it }
+        if (player.isAudioOnly && player.error == null) player.channel?.let { RadioScreen(it) }
         if (player.isBuffering && player.error == null) {
             Text(tr("Chargement…", "Loading…"), Modifier.align(Alignment.Center), color = Secondary)
         }
@@ -417,5 +420,30 @@ fun KeepAwake() {
     DisposableEffect(Unit) {
         view.keepScreenOn = true
         onDispose { view.keepScreenOn = false }
+    }
+}
+
+/** A radio has no picture: its logo and what's on, drifting slowly
+ *  round the screen so nothing stays burnt in. */
+@Composable
+private fun RadioScreen(group: ChannelGroup) {
+    val app = LocalApp.current
+    val now = app.epg.now(app.epg.source(group))
+    val drift = androidx.compose.animation.core.rememberInfiniteTransition(label = "radio")
+    val x by drift.animateFloat(-1f, 1f, androidx.compose.animation.core.infiniteRepeatable(
+        androidx.compose.animation.core.tween(23_000, easing = androidx.compose.animation.core.LinearEasing),
+        androidx.compose.animation.core.RepeatMode.Reverse), label = "x")
+    val y by drift.animateFloat(-1f, 1f, androidx.compose.animation.core.infiniteRepeatable(
+        androidx.compose.animation.core.tween(17_000, easing = androidx.compose.animation.core.LinearEasing),
+        androidx.compose.animation.core.RepeatMode.Reverse), label = "y")
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        val reachX = (maxWidth - 360.dp) / 2
+        val reachY = (maxHeight - 220.dp) / 2
+        Column(Modifier.align(Alignment.Center).offset(reachX * x, reachY * y).width(360.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp)).padding(14.dp)) { ChannelLogo(group, 160.dp, 90.dp) }
+            Text(group.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            now?.title?.let { Text(it, color = Secondary, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
+        }
     }
 }

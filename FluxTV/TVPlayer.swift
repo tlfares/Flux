@@ -25,6 +25,8 @@ final class TVPlayer {
     private(set) var error: String?
     private(set) var isPaused = false
     private(set) var isBuffering = false
+    /// Sound and no picture: a radio.
+    private(set) var isAudioOnly = false
     var showsLive = false
     var video: TVVideo?
     var library: Library?
@@ -43,6 +45,7 @@ final class TVPlayer {
     private var client: XtreamClient?
     private var tried: Set<Int> = []
     private var statusObservation: NSKeyValueObservation?
+    private var tracksObservation: NSKeyValueObservation?
     private var waitingObservation: NSKeyValueObservation?
     private var progressObserver: Any?
     private var pendingZap: Task<Void, Never>?
@@ -199,6 +202,14 @@ final class TVPlayer {
                 self.streamFailed()
             }
         }
+        isAudioOnly = false
+        tracksObservation = item.observe(\.tracks) { [weak self] item, _ in
+            let audioOnly = Self.isAudioOnly(item)
+            Task { @MainActor in
+                guard let self, self.player.currentItem === item else { return }
+                self.isAudioOnly = audioOnly
+            }
+        }
         player.replaceCurrentItem(with: item)
         if let resumeAt {
             player.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .positiveInfinity)
@@ -208,11 +219,18 @@ final class TVPlayer {
         player.play()
     }
 
+    nonisolated static func isAudioOnly(_ item: AVPlayerItem) -> Bool {
+        let types = item.tracks.compactMap { $0.assetTrack?.mediaType }
+        return types.contains(.audio) && !types.contains(.video)
+    }
+
     private func stop() {
         resolving?.cancel()
         if let progressObserver { player.removeTimeObserver(progressObserver) }
         progressObserver = nil
         statusObservation = nil
+        tracksObservation = nil
+        isAudioOnly = false
         player.pause()
         player.replaceCurrentItem(with: nil)
         subtitles.clear()

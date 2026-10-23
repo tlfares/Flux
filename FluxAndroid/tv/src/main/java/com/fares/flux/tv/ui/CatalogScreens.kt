@@ -61,6 +61,7 @@ import com.fares.flux.core.Series
 import com.fares.flux.core.SeriesDetails
 import com.fares.flux.core.tr
 import kotlinx.coroutines.delay
+import androidx.compose.ui.focus.focusRequester
 
 /** Where a poster leads. */
 sealed interface Route {
@@ -159,7 +160,10 @@ private fun DetailPage(
     poster: String?,
     facts: List<String>,
     plot: String?,
-    actions: @Composable () -> Unit,
+    /** Given the modifier the first button takes, to have the focus. */
+    actions: @Composable (Modifier) -> Unit,
+    /** Focus given again when it changes: the series' episodes loaded, Play there. */
+    focusKey: Any? = Unit,
     below: @Composable () -> Unit,
 ) {
     Box(Modifier.fillMaxSize()) {
@@ -175,17 +179,22 @@ private fun DetailPage(
             item { Text(title, fontSize = 32.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             if (facts.isNotEmpty()) item { Text(facts.joinToString("  ·  "), color = Secondary, fontSize = 14.sp) }
             plot?.let { item { Text(it, Modifier.widthIn(max = 500.dp), color = Secondary, fontSize = 14.sp, maxLines = 5, overflow = TextOverflow.Ellipsis) } }
-            item { Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) { actions() } }
+            item {
+                // Play first under the remote, as soon as the page opens.
+                val first = remember { androidx.compose.ui.focus.FocusRequester() }
+                Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) { actions(Modifier.focusRequester(first)) }
+                LaunchedEffect(focusKey) { delay(100); runCatching { first.requestFocus() } }
+            }
             item { below() }
         }
     }
 }
 
 @Composable
-private fun FavoriteButton(favorite: Favorite) {
+private fun FavoriteButton(favorite: Favorite, modifier: Modifier = Modifier) {
     val app = LocalApp.current
     val on = app.library.isFavorite(favorite)
-    OutlinedButton(onClick = { app.library.toggleFavorite(favorite) }) { Text(if (on) tr("★  Retirer des favoris", "★  Remove from favorites") else tr("☆  Ajouter aux favoris", "☆  Add to favorites")) }
+    OutlinedButton(onClick = { app.library.toggleFavorite(favorite) }, modifier) { Text(if (on) tr("★  Retirer des favoris", "★  Remove from favorites") else tr("☆  Ajouter aux favoris", "☆  Add to favorites")) }
 }
 
 @Composable
@@ -200,8 +209,8 @@ private fun MovieDetail(movie: Movie) {
     val resumable = app.library.progress[key]?.isResumable == true
     val d = details
     val facts = listOfNotNull(d?.year, d?.duration, d?.genre, movie.rating?.let { "★ " + "%.1f".format(it) })
-    DetailPage(DisplayName.clean(movie.name), d?.backdrop, d?.poster ?: movie.poster, facts, d?.plot, actions = {
-        Button(onClick = { app.accounts.client?.let { player.play(movie, it) } }) { Text(if (resumable) tr("▶  Reprendre", "▶  Resume") else tr("▶  Lecture", "▶  Play")) }
+    DetailPage(DisplayName.clean(movie.name), d?.backdrop, d?.poster ?: movie.poster, facts, d?.plot, actions = { first ->
+        Button(onClick = { app.accounts.client?.let { player.play(movie, it) } }, first) { Text(if (resumable) tr("▶  Reprendre", "▶  Resume") else tr("▶  Lecture", "▶  Play")) }
         if (resumable) OutlinedButton(onClick = { app.accounts.client?.let { player.play(movie, it, fromStart = true) } }) { Text(tr("↺  Depuis le début", "↺  Start over")) }
         FavoriteButton(Favorite.movie(movie))
     }) {
@@ -250,15 +259,16 @@ private fun SeriesDetail(series: Series) {
     }
     val d = details
     val facts = listOfNotNull(d?.year ?: series.year, d?.genre, seasons.size.takeIf { it > 0 }?.let { if (it == 1) tr("1 saison", "1 season") else tr("$it saisons", "$it seasons") })
-    DetailPage(DisplayName.clean(series.name), d?.backdrop, series.cover, facts, d?.plot, actions = {
-        nextEpisode()?.let { next ->
+    DetailPage(DisplayName.clean(series.name), d?.backdrop, series.cover, facts, d?.plot, actions = { first ->
+        val next = nextEpisode()
+        next?.let { next ->
             val started = app.library.progress[Library.key(MediaKind.SERIES, next.id)] != null
-            Button(onClick = { app.accounts.client?.let { player.play(next, series, it) } }) {
+            Button(onClick = { app.accounts.client?.let { player.play(next, series, it) } }, first) {
                 Text("▶  ${if (started) tr("Reprendre", "Resume") else tr("Lecture", "Play")} S${next.season} E${next.number}")
             }
         }
-        FavoriteButton(Favorite.series(series))
-    }) {
+        FavoriteButton(Favorite.series(series), if (next == null) first else Modifier)
+    }, focusKey = details != null) {
         when {
             d == null && !failed -> Text(tr("Chargement…", "Loading…"), color = Secondary, modifier = Modifier.padding(top = 20.dp))
             seasons.isEmpty() -> Text(tr("Aucun épisode.", "No episodes."), color = Secondary, modifier = Modifier.padding(top = 20.dp))

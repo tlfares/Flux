@@ -32,6 +32,8 @@ final class PlayerCenter: NSObject {
     private(set) var fallbackNotice: String?
     /// Drives the live screen.
     var showsLive = false
+    /// Sound and no picture: a radio.
+    private(set) var isAudioOnly = false
     /// The live screen shows the picture alone.
     private(set) var isLiveFullScreen = false
     var library: Library?
@@ -42,6 +44,7 @@ final class PlayerCenter: NSObject {
     private var player: AVPlayer?
     private var progressObserver: Any?
     private var statusObservation: NSKeyValueObservation?
+    private var tracksObservation: NSKeyValueObservation?
     private var triedVariants: Set<Int> = []
     private var client: XtreamClient?
     private var pendingRestore: ((Bool) -> Void)?
@@ -198,6 +201,15 @@ final class PlayerCenter: NSObject {
             }
         }
 
+        isAudioOnly = false
+        tracksObservation = playerItem.observe(\.tracks) { [weak self] item, _ in
+            let types = item.tracks.compactMap { $0.assetTrack?.mediaType }
+            let audioOnly = types.contains(.audio) && !types.contains(.video)
+            Task { @MainActor in
+                guard let self, self.player?.currentItem === item else { return }
+                self.isAudioOnly = audioOnly
+            }
+        }
         if let player {
             player.replaceCurrentItem(with: playerItem)
         } else {
@@ -241,6 +253,8 @@ final class PlayerCenter: NSObject {
         if let progressObserver { player?.removeTimeObserver(progressObserver) }
         progressObserver = nil
         statusObservation = nil
+        tracksObservation = nil
+        isAudioOnly = false
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         subtitles.clear()

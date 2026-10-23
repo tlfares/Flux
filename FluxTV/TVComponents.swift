@@ -420,3 +420,34 @@ struct TVCatalogState: View {
         }
     }
 }
+
+/// A radio has no picture: its logo and what's on, drifting slowly round
+/// the picture so nothing stays burnt in.
+struct RadioScreen<Logo: View>: View {
+    let group: ChannelGroup
+    let programme: String?
+    var titleFont: Font
+    @ViewBuilder var logo: Logo
+
+    var body: some View {
+        GeometryReader { geo in
+            TimelineView(.animation) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                // Two slow periods: the path doesn't repeat for minutes.
+                let x = sin(t * 2 * .pi / 46)
+                let y = sin(t * 2 * .pi / 34)
+                VStack(spacing: 10) {
+                    logo
+                    Text(group.name).font(titleFont).lineLimit(1)
+                    if let programme { Text(programme).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.center) }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: geo.size.width * 0.5)
+                .offset(x: x * geo.size.width * 0.22, y: y * geo.size.height * 0.2)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .background(.black)
+        .allowsHitTesting(false)
+    }
+}

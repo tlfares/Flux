@@ -46,6 +46,8 @@ class TVPlayer(context: Context, private val state: AppState) {
      *  the first one, while the picture is black. */
     var hasPicture by mutableStateOf(false); private set
     var showsLive by mutableStateOf(false); private set
+    /** Sound and no picture: a radio. */
+    var isAudioOnly by mutableStateOf(false); private set
     var video by mutableStateOf<Video?>(null); private set
     /** The stream's subtitles and captions, and the one shown (null: off). */
     var textTracks by mutableStateOf<List<TextTrack>>(emptyList()); private set
@@ -84,6 +86,7 @@ class TVPlayer(context: Context, private val state: AppState) {
                 }
                 textTracks = list
                 textTrack = shown
+                isAudioOnly = tracks.containsType(C.TRACK_TYPE_AUDIO) && !tracks.containsType(C.TRACK_TYPE_VIDEO)
                 if (state.settings.subtitles && shown == null && list.isNotEmpty() && !pickedFirstText) {
                     pickedFirstText = true
                     selectText(list[0])

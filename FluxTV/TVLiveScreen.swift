@@ -19,6 +19,13 @@ struct TVLiveScreen: View {
         ZStack {
             Color.black
             VideoSurface(player: player.player)
+            if player.isAudioOnly, player.error == nil, let group = player.channel {
+                RadioScreen(group: group, programme: epg.now(epg.source(group))?.title, titleFont: .title2.bold()) {
+                    TVChannelLogo(group: group, width: 240, height: 135)
+                        .padding(20)
+                        .background(.white.opacity(0.08), in: .rect(cornerRadius: 24))
+                }
+            }
             if player.isBuffering, player.error == nil {
                 ProgressView().scaleEffect(1.4)
             }

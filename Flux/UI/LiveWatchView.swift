@@ -104,6 +104,7 @@ struct LiveWatchView: View {
             Color.black
             // Handed to full screen while it's there; back here after.
             PlayerSurface(controller: player.controller) { player.liveSurfaceAppeared() }
+            RadioOverlay()
             LiveErrorOverlay()
         }
         .aspectRatio(16 / 9, contentMode: .fit)
@@ -207,6 +208,7 @@ private struct LiveFullScreen: View {
             Color.black.ignoresSafeArea()
             PlayerSurface(controller: player.controller) { player.liveSurfaceAppeared() }
                 .ignoresSafeArea()
+            RadioOverlay()
             LiveErrorOverlay()
             if showsControls { controls.transition(.opacity) }
         }
@@ -283,6 +285,23 @@ private struct LiveFullScreen: View {
 }
 
 /// When no stream of the channel would play.
+/// A radio's logo and what's on over the black picture.
+private struct RadioOverlay: View {
+    @Environment(PlayerCenter.self) private var player
+    @Environment(EPG.self) private var epg
+
+    var body: some View {
+        if player.isAudioOnly, player.liveError == nil, let group = player.liveGroup {
+            RadioScreen(group: group, programme: epg.now(epg.source(group))?.title, titleFont: .headline) {
+                ChannelLogo(group: group, width: 96, height: 54)
+                    .padding(10)
+                    .background(.white.opacity(0.08), in: .rect(cornerRadius: 14))
+            }
+            .foregroundStyle(.white)
+        }
+    }
+}
+
 private struct LiveErrorOverlay: View {
     @Environment(PlayerCenter.self) private var player
 
