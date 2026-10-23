@@ -1,19 +1,28 @@
-![Flux on Apple and Android devices](banner.jpg)
+![Flux on Apple and Android devices](banner-1.1.jpg)
 
 # Flux
-Native IPTV player for Xtream Codes accounts (or their M3U link), made for the French market (for now): iPhone, iPad, Mac, Apple TV, Android and Android TV. Apple apps built 100% in Swift, Android apps in Kotlin.
+Native IPTV player for Xtream Codes accounts (or their M3U link), made for the French market first, in French and English: iPhone, iPad, Mac, Apple TV, Android and Android TV. Apple apps built 100% in Swift, Android apps in Kotlin.
 
 ## Features
 - Local, no Flux account, no ads
+- In French and English
 - Liquid Glass
 - Live TV, films and series from your Xtream Codes subscription
-- Free French channels built in (France TV, Arte, BFM, RMC, L'Équipe, France 3 regions, Pluto TV…), read from the broadcasters' official streams, with your subscription as a fallback
+- Free channels built in: France (France TV, Arte, BFM, RMC, L'Équipe, France 3 regions…), the US and the UK, plus Pluto TV for your country. French ones play from the broadcasters' official streams, with your subscription as a fallback
+- Show one country's free channels, or all of them with yours first
 - Channel numbering of your choice: provider, TNT, Orange, Bouygues, Free or SFR
-- TV guide, with the open French TNT guide from [XML TV Fr](https://xmltvfr.fr)
+- TV guide with a full programme grid, using the open French TNT guide from [XML TV Fr](https://xmltvfr.fr)
 - Time-shifted channels (« TF1 +4 ») grouped under their channel
 - Default quality when a channel comes in several (SD, HD, 4K…)
-- Favorites, resume where films and episodes stopped, recent channels
+- Favorites, resume where films and episodes stopped, recent channels, clear history in one step
+- Reorder and hide categories, per account
+- Subtitles on live streams, off unless you turn them on
+- Show or hide the Guide, Films and Series tabs
+- Custom DNS on Android (Cloudflare, Google, Quad9) when your router blocks your provider
 - Send an account from your phone to the TV over the local network, with its favorites and settings: no typing passwords with a remote
+
+## What's new
+See the [changelog](CHANGELOG.md).
 
 ## Requirements
 - iOS / iPadOS / tvOS 26+
