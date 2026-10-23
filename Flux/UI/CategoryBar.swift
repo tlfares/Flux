@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The chips above each section: favorites, everything, then the
-/// provider's categories. Long lists also open as a searchable sheet.
+/// provider's categories, in the order chosen for them. They all open as a
+/// panel too, where they're searched, reordered and put away.
 struct CategoryBar: View {
     static let all = "_all"
     static let favorites = "_fav"
@@ -10,19 +11,22 @@ struct CategoryBar: View {
     static let height: CGFloat = 56
 
     let categories: [Category]
+    let kind: MediaKind
     @Binding var selection: String
     var showsRecent = false
     /// Off when favorites are pinned in the lists instead.
     var showsFavorites = true
 
     @State private var showsList = false
+    @Environment(Catalog.self) private var catalog
+    private var layouts: CategoryLayouts { .shared }
 
     private var entries: [(id: String, name: String)] {
         var list: [(String, String)] = []
-        if showsFavorites { list.append((Self.favorites, "Favoris")) }
-        if showsRecent { list.append((Self.recent, "Récents")) }
-        list.append((Self.all, "Tout"))
-        return list + categories.map { ($0.id, $0.name) }
+        if showsFavorites { list.append((Self.favorites, String(localized: "Favoris"))) }
+        if showsRecent { list.append((Self.recent, String(localized: "Récents"))) }
+        list.append((Self.all, String(localized: "Tout")))
+        return list + layouts.arranged(categories, kind).map { ($0.id, $0.name) }
     }
 
     var body: some View {
@@ -81,9 +85,23 @@ struct CategoryBar: View {
         .padding(.vertical, 6)
         .frame(height: Self.height)
         .sensoryFeedback(.selection, trigger: selection)
+        // A category that went away (another country, another account): everything instead.
+        .onChange(of: categories.map(\.id), initial: true) { _, ids in
+            if !ids.isEmpty, !selection.hasPrefix("_"), !ids.contains(selection) { selection = Self.all }
+        }
         .sheet(isPresented: $showsList) {
-            CategoryList(entries: entries, selection: $selection)
+            CategoryPanel(categories: categories, kind: kind, selection: $selection,
+                          showsRecent: showsRecent, showsFavorites: showsFavorites, count: count)
                 .presentationDetents([.medium, .large])
+        }
+    }
+
+    /// What a category holds: channels put together, films or series.
+    private func count(_ id: String) -> Int {
+        switch kind {
+        case .live: catalog.guide.isEmpty ? catalog.live.index[id]?.count ?? 0 : catalog.guide.count(in: id)
+        case .movie: catalog.movies.index[id]?.count ?? 0
+        case .series: catalog.series.index[id]?.count ?? 0
         }
     }
 
@@ -120,34 +138,35 @@ struct CategoryBar: View {
     }
 }
 
-private struct CategoryList: View {
-    let entries: [(id: String, name: String)]
+/// Every category at once: the shortcuts as tiles, then the categories
+/// with what's in them. Editing reorders them and puts some away.
+private struct CategoryPanel: View {
+    let categories: [Category]
+    let kind: MediaKind
     @Binding var selection: String
+    let showsRecent: Bool
+    let showsFavorites: Bool
+    let count: (String) -> Int
+
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @State private var isEditing = false
+    private var layouts: CategoryLayouts { .shared }
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(filtered, id: \.id) { entry in
-                    Button {
-                        selection = entry.id
-                        dismiss()
-                    } label: {
-                        HStack {
-                            Text(entry.name).foregroundStyle(.primary)
-                            Spacer()
-                            if entry.id == selection {
-                                Image(systemName: "checkmark").foregroundStyle(.tint).fontWeight(.semibold)
-                            }
-                        }
-                    }
-                }
+            Group {
+                if isEditing { editor } else { browser }
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Catégorie")
             .navigationTitle("Catégories")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(isEditing ? "OK" : "Modifier") {
+                        withAnimation(Motion.smooth) { isEditing.toggle() }
+                    }
+                    .fontWeight(isEditing ? .semibold : .regular)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(role: .close) { dismiss() }
                 }
@@ -155,9 +174,199 @@ private struct CategoryList: View {
         }
     }
 
-    private var filtered: [(id: String, name: String)] {
-        guard !query.isEmpty else { return entries }
+    // MARK: Choosing
+
+    private var browser: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if query.isEmpty { shortcuts }
+                let shown = filtered
+                if shown.isEmpty {
+                    ContentUnavailableView.search(text: query).padding(.top, 40)
+                } else {
+                    LazyVStack(spacing: 4) {
+                        ForEach(shown) { category in
+                            row(category)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
+        }
+        .scrollIndicators(.hidden)
+        .scrollDismissesKeyboard(.immediately)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Rechercher une catégorie")
+    }
+
+    private var shortcuts: some View {
+        HStack(spacing: 10) {
+            if showsFavorites { tile(CategoryBar.favorites, String(localized: "Favoris"), "star.fill") }
+            if showsRecent { tile(CategoryBar.recent, String(localized: "Récents"), "clock.fill") }
+            tile(CategoryBar.all, String(localized: "Tout"), "square.grid.2x2.fill")
+        }
+    }
+
+    private func tile(_ id: String, _ title: String, _ symbol: String) -> some View {
+        let selected = id == selection
+        return Button {
+            choose(id)
+        } label: {
+            VStack(spacing: 8) {
+                Image(systemName: symbol).font(.title3)
+                Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+            }
+            .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background {
+                if selected { RoundedRectangle(cornerRadius: 20).fill(FluxTint.horizontal) }
+            }
+            .contentShape(.rect(cornerRadius: 20))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func row(_ category: Category) -> some View {
+        let selected = category.id == selection
+        let label = CategoryLabel(category.name, showsFlags: showsFlags)
+        return Button {
+            choose(category.id)
+        } label: {
+            HStack(spacing: 12) {
+                CategoryBadge(label: label)
+                Text(label.title)
+                    .font(.body.weight(selected ? .semibold : .regular))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(count(category.id).formatted())
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(selected ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(.secondary))
+            }
+            .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                selected ? AnyShapeStyle(FluxTint.horizontal) : AnyShapeStyle(Color.primary.opacity(0.05)),
+                in: .rect(cornerRadius: 16)
+            )
+            .contentShape(.rect(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func choose(_ id: String) {
+        withAnimation(Motion.snappy) { selection = id }
+        dismiss()
+    }
+
+    private var filtered: [Category] {
+        let list = layouts.arranged(categories, kind)
+        guard !query.isEmpty else { return list }
         let q = SearchIndex.fold(query)
-        return entries.filter { SearchIndex.fold($0.name).contains(q) }
+        return list.filter { SearchIndex.fold(DisplayName.clean($0.name)).contains(q) }
+    }
+
+    /// Flags rather than initials when categories come from several countries.
+    private var showsFlags: Bool {
+        Set(categories.lazy.map { ChannelName.splitCountry(Substring($0.name)).country }.filter { !$0.isEmpty }).count > 1
+    }
+
+    // MARK: Editing
+
+    private var editor: some View {
+        let list = layouts.arranged(categories, kind, includingHidden: true)
+        return List {
+            Section {
+                ForEach(list) { category in
+                    let hidden = layouts.isHidden(category.id, kind)
+                    let label = CategoryLabel(category.name, showsFlags: showsFlags)
+                    HStack(spacing: 12) {
+                        CategoryBadge(label: label)
+                        Text(label.title).lineLimit(1)
+                        Spacer(minLength: 8)
+                        Button {
+                            withAnimation(Motion.snappy) { layouts.toggleHidden(category.id, kind) }
+                        } label: {
+                            Image(systemName: hidden ? "eye.slash" : "eye")
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(hidden ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+                                .frame(width: 36, height: 36)
+                                .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(hidden ? "Afficher" : "Masquer")
+                    }
+                    .opacity(hidden ? 0.45 : 1)
+                }
+                .onMove { from, to in
+                    var ids = list.map(\.id)
+                    ids.move(fromOffsets: from, toOffset: to)
+                    layouts.setOrder(ids, kind)
+                }
+            } footer: {
+                Text("Fais glisser pour changer l’ordre. Les catégories masquées restent dans « Tout ».")
+            }
+            if layouts.isCustomized(kind) {
+                Section {
+                    Button("Réinitialiser l’ordre", systemImage: "arrow.counterclockwise", role: .destructive) {
+                        withAnimation(Motion.smooth) { layouts.reset(kind) }
+                    }
+                }
+            }
+        }
+        .environment(\.editMode, .constant(.active))
+    }
+}
+
+/// A category's name for the panel, its flag or initials apart.
+private struct CategoryLabel {
+    var title: String
+    var flag: String?
+    var initials: String
+
+    init(_ name: String, showsFlags: Bool) {
+        let country = ChannelName.splitCountry(Substring(name)).country
+        var title = DisplayName.clean(name)
+        // "🇺🇸 News": the flag goes in the badge.
+        let again = ChannelName.splitCountry(Substring(title))
+        if !again.country.isEmpty, title.unicodeScalars.first.map({ (0x1F1E6...0x1F1FF).contains($0.value) }) == true {
+            title = again.rest.trimmingCharacters(in: .whitespaces)
+        }
+        self.title = title
+        flag = showsFlags ? FreeScope.flag(country) : nil
+        let words = title.split { !$0.isLetter && !$0.isNumber }
+        initials = String(words.prefix(2).compactMap(\.first)).uppercased().nonEmpty ?? "#"
+    }
+}
+
+/// The square at the start of a category's row: its country's flag, or
+/// its initials on a colour of its own.
+private struct CategoryBadge: View {
+    let label: CategoryLabel
+
+    var body: some View {
+        Group {
+            if let flag = label.flag {
+                Text(flag).font(.title3)
+            } else {
+                Text(label.initials)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(tint.gradient, in: .rect(cornerRadius: 10))
+            }
+        }
+        .frame(width: 36, height: 36)
+    }
+
+    /// The same muted hue for a name every time.
+    private var tint: Color {
+        var hash: UInt64 = 1469598103934665603
+        for byte in label.title.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
+        return Color(hue: Double(hash % 360) / 360, saturation: 0.45, brightness: 0.62)
     }
 }

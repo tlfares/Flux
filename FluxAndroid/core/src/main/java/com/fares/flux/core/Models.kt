@@ -122,7 +122,7 @@ data class LiveChannel(
     companion object {
         fun from(o: JsonObject): LiveChannel? {
             val id = o.int("stream_id") ?: return null
-            return LiveChannel(id, o.str("name")?.nonEmpty ?: "Chaîne $id", o.int("num"), o.str("stream_icon")?.nonEmpty,
+            return LiveChannel(id, o.str("name")?.nonEmpty ?: tr("Chaîne $id", "Channel $id"), o.int("num"), o.str("stream_icon")?.nonEmpty,
                 o.str("category_id"), o.str("epg_channel_id")?.nonEmpty)
         }
     }
@@ -143,7 +143,7 @@ data class Movie(
     companion object {
         fun from(o: JsonObject): Movie? {
             val id = o.int("stream_id") ?: return null
-            return Movie(id, o.str("name")?.nonEmpty ?: "Film $id", o.str("stream_icon")?.nonEmpty, o.str("category_id"),
+            return Movie(id, o.str("name")?.nonEmpty ?: tr("Film $id", "Movie $id"), o.str("stream_icon")?.nonEmpty, o.str("category_id"),
                 o.double("rating")?.takeIf { it > 0 }, o.str("container_extension")?.nonEmpty ?: "mp4", o.int("added"))
         }
     }
@@ -161,7 +161,7 @@ data class Series(
     companion object {
         fun from(o: JsonObject): Series? {
             val id = o.int("series_id") ?: return null
-            return Series(id, o.str("name")?.nonEmpty ?: "Série $id", o.str("cover")?.nonEmpty, o.str("category_id"),
+            return Series(id, o.str("name")?.nonEmpty ?: tr("Série $id", "Series $id"), o.str("cover")?.nonEmpty, o.str("category_id"),
                 o.double("rating")?.takeIf { it > 0 }, o.str("releaseDate")?.nonEmpty?.take(4))
         }
     }
@@ -224,7 +224,7 @@ data class Episode(
             val number = o.int("episode_num") ?: 0
             val info = o["info"]?.obj
             return Episode(id, number, (o.int("season") ?: 0).takeIf { it != 0 } ?: seasonKey,
-                o.str("title")?.nonEmpty ?: "Épisode $number", o.str("container_extension")?.nonEmpty ?: "mp4",
+                o.str("title")?.nonEmpty ?: tr("Épisode $number", "Episode $number"), o.str("container_extension")?.nonEmpty ?: "mp4",
                 info?.str("movie_image")?.nonEmpty, info?.str("plot")?.nonEmpty, info?.str("duration")?.nonEmpty)
         }
     }
@@ -284,7 +284,7 @@ data class Programme(
                     ?.takeUnless { '\uFFFD' in it }
                 return (decoded ?: raw).nonEmpty
             }
-            return Programme(text("title") ?: "Programme", text("description"),
+            return Programme(text("title") ?: tr("Programme", "Program"), text("description"),
                 o.double("start_timestamp")?.toLong() ?: 0, o.double("stop_timestamp")?.toLong() ?: 0)
         }
 
@@ -302,5 +302,47 @@ object DisplayName {
         // Also the stars some panels lead every category with.
         val rest = ChannelName.splitCountry(name).second.trim { it == ' ' || it in "✪★☆●•◉▶►" }
         return rest.ifEmpty { name }
+    }
+}
+
+/** What leads a category in the category panel: its flag when the list
+ *  mixes countries, else the first letters of its name on a colour drawn
+ *  from the name, the same each time. */
+object CategoryBadge {
+    /** Flags tell categories apart only when there's more than one country. */
+    fun usesFlags(categories: List<Category>): Boolean {
+        val seen = HashSet<String>()
+        for (c in categories) {
+            flagCountry(c.name)?.let { seen.add(it) }
+            if (seen.size > 1) return true
+        }
+        return false
+    }
+
+    /** "AR" is Arabic to panels, not Argentina: no flag for it. */
+    private fun flagCountry(name: String): String? =
+        ChannelName.categoryCountry(name).takeIf { it.length == 2 && it != "AR" }
+
+    fun flag(category: Category): String? = flagCountry(category.name)?.let { FreeChannels.flag(it) }?.ifEmpty { null }
+
+    /** The name as the panel shows it: without its tag, nor the flag the badge already shows. */
+    fun title(category: Category, flagged: Boolean): String {
+        val clean = DisplayName.clean(category.name)
+        return if (flagged) DisplayName.clean(clean) else clean
+    }
+
+    /** As iOS's: the first letter of the first two words, "Sport FHD" →
+     *  "SF", "Documentaires" → "D". */
+    fun initials(name: String): String {
+        val words = name.split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+        return words.take(2).joinToString("") { it.take(1) }.uppercase().ifEmpty { "#" }
+    }
+
+    /** A hue, 0 to 360, from the name: iOS's (FNV-1a over its UTF-8), so a
+     *  category has the same colour everywhere. */
+    fun hue(name: String): Float {
+        var hash = 1469598103934665603uL
+        for (byte in name.encodeToByteArray()) hash = (hash xor byte.toUByte().toULong()) * 1099511628211uL
+        return (hash % 360uL).toFloat()
     }
 }

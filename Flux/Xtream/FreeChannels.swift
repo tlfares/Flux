@@ -1,9 +1,10 @@
 import Foundation
 
 /// The channels anyone can watch without a subscription, from the
-/// broadcasters' own players: the free TNT channels France TV, Arte, BFM,
-/// RMC and L'Équipe stream, news, the France 3 regions, then Pluto TV's
-/// French line-up. The list comes with the app (FreeChannels.json); streams
+/// broadcasters' own players: in France the free TNT channels France TV,
+/// Arte, BFM, RMC and L'Équipe stream, news and the France 3 regions, the
+/// American and British news and free channels, then Pluto TV's line-up
+/// for where the device is. The list comes with the app (FreeChannels.json); streams
 /// whose address changes are looked up when they start (`StreamResolver`).
 nonisolated enum FreeChannels {
     private struct File: Decodable {
@@ -19,12 +20,15 @@ nonisolated enum FreeChannels {
         var channels: [Item]
 
         private enum Keys: String, CodingKey { case version, categories, channels }
-        private struct Cat: Decodable { var id: String; var name: String }
+        private struct Cat: Decodable { var id: String; var name: String; var country: String? }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
-            categories = try c.decode([Cat].self, forKey: .categories).map { Category(id: $0.id, name: $0.name) }
+            categories = try c.decode([Cat].self, forKey: .categories).map {
+                // Named with their country, as panels do: "|US| News".
+                Category(id: $0.id, name: "|\($0.country ?? "FR")| " + FreeChannels.named(Category(id: $0.id, name: $0.name)))
+            }
             channels = try c.decode([Item].self, forKey: .channels)
         }
 
@@ -39,7 +43,7 @@ nonisolated enum FreeChannels {
     /// new version of the app. Asked for at most every few hours; the copy
     /// that came with the app stands in until one arrives, and whenever it's
     /// older or unreadable.
-    static let remote = URL(string: "https://gist.githubusercontent.com/tlfares/b08fcc5378a0b04d14d0f15dfea7cf77/raw/FreeChannels.json")!
+    static let remote = URL(string: "https://gist.githubusercontent.com/tlfares/b08fcc5378a0b04d14d0f15dfea7cf77/raw/FreeChannels2.json")!
     private static let remoteMaxAge: TimeInterval = 6 * 3600
     private static var remoteFile: URL { URL.cachesDirectory.appending(path: "free-channels.json") }
 
@@ -71,28 +75,117 @@ nonisolated enum FreeChannels {
         } ?? []
     }
 
-    /// The listed channels, then Pluto TV's when it answers.
+    /// Every country's channels, then Pluto TV's when it answers: which
+    /// ones show is chosen when they're shown (`shown`), so changing it
+    /// needs nothing loaded again.
     static func playlist() async -> Playlist {
         var playlist = Playlist()
         async let listed = current()
         async let pluto = try? PlutoTV.shared.lineup()
         if let file = await listed {
-            playlist.liveCategories = file.categories.map(french)
+            playlist.liveCategories = file.categories
             playlist.live = file.channels.map {
                 LiveChannel(id: Playlist.stableID($0.url), name: $0.name, icon: $0.logo, categoryID: $0.category, url: $0.url)
             }
         }
         if let pluto = await pluto {
-            playlist.liveCategories += pluto.categories.map(french)
+            playlist.liveCategories += pluto.categories
             playlist.live += pluto.channels
         }
         return playlist
     }
 
-    /// Categories read as French: their channels are matched against the
-    /// French line-up (numbers, logos, the open guide).
-    private static func french(_ category: Category) -> Category {
-        Category(id: category.id, name: "|FR| " + category.name)
+    /// The free account's channels as the setting has them: one country's
+    /// alone, or every country's with the device's first and a flag on each
+    /// category.
+    static func shown(_ section: CatalogSection<LiveChannel>, scope: FreeScope) -> CatalogSection<LiveChannel> {
+        let tagged = section.categories.map { (category: $0, country: ChannelName.splitCountry(Substring($0.name)).country) }
+        if let only = scope.country, tagged.contains(where: { $0.country == only }) {
+            let kept = tagged.filter { $0.country == only }.map(\.category)
+            let ids = Set(kept.map(\.id))
+            return CatalogSection(categories: kept, items: section.items.filter { $0.categoryID.map(ids.contains) ?? false }, categoryOf: \.categoryID)
+        }
+        let home = FreeScope.detected.country ?? "US"
+        let ordered = tagged.filter { $0.country == home } + tagged.filter { $0.country != home }
+        var result = section
+        result.categories = ordered.map { item in
+            guard let flag = FreeScope.flag(item.country) else { return item.category }
+            let rest = ChannelName.splitCountry(Substring(item.category.name)).rest.drop { $0 == " " }
+            return Category(id: item.category.id, name: "|\(item.country)| \(flag) \(rest)")
+        }
+        return result
+    }
+
+    /// The list's own categories in the device's language; new ones keep
+    /// the list's name.
+    fileprivate static func named(_ category: Category) -> String {
+        switch category.id {
+        case "info": String(localized: "Info")
+        case "regions": String(localized: "France 3 Régions")
+        case "bfm": String(localized: "BFM Régions")
+        case "local": String(localized: "Chaînes locales")
+        case "music": String(localized: "Musique")
+        case "fast": String(localized: "Films & séries")
+        case "sport": String(localized: "Sport")
+        case "outremer": String(localized: "Outre-mer")
+        case "jeunesse": String(localized: "Jeunesse")
+        default: category.name
+        }
+    }
+}
+
+/// Which free channels show: one country's, or every country's.
+nonisolated enum FreeScope: String, CaseIterable, Sendable {
+    case fr
+    case us
+    case uk
+    case all
+
+    static let storageKey = "free.scope"
+
+    var title: String {
+        switch self {
+        case .fr: String(localized: "France")
+        case .us: "US"
+        case .uk: "UK"
+        case .all: String(localized: "Tous")
+        }
+    }
+
+    /// Above the title in the setting.
+    var emoji: String {
+        switch self {
+        case .fr: "🇫🇷"
+        case .us: "🇺🇸"
+        case .uk: "🇬🇧"
+        case .all: "🌍"
+        }
+    }
+
+    /// The tag the list puts on this country's categories.
+    var country: String? {
+        switch self {
+        case .fr: "FR"
+        case .us: "US"
+        case .uk: "UK"
+        case .all: nil
+        }
+    }
+
+    /// The device's country when the list has it, the United States' otherwise.
+    static var detected: FreeScope {
+        switch Locale.current.region?.identifier.uppercased() {
+        case "FR": .fr
+        case "GB": .uk
+        default: .us
+        }
+    }
+
+    /// "🇺🇸" for "US".
+    static func flag(_ country: String) -> String? {
+        let code = country == "UK" ? "GB" : country
+        guard code.count == 2, code.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
+        return String(String.UnicodeScalarView(code.uppercased().unicodeScalars.compactMap { Unicode.Scalar($0.value + 0x1F1A5) }))
     }
 }
 
@@ -170,6 +263,8 @@ actor PlutoTV {
         var stitcher: String
         var params: String
         var expires: Date
+        /// Where Pluto places the device: its line-up is that country's.
+        var region: String
     }
 
     private var session: Session?
@@ -189,7 +284,9 @@ actor PlutoTV {
               let stitcher = (boot["servers"] as? [String: Any])?["stitcher"] as? String,
               let params = boot["stitcherParams"] as? String else { throw URLError(.badServerResponse) }
         let refresh = (boot["refreshInSec"] as? Double) ?? 3600
-        let session = Session(token: token, stitcher: stitcher, params: params, expires: Date().addingTimeInterval(min(refresh, 6 * 3600) - 60))
+        let region = ((boot["session"] as? [String: Any])?["activeRegion"] as? String)?.uppercased() ?? "FR"
+        let session = Session(token: token, stitcher: stitcher, params: params, expires: Date().addingTimeInterval(min(refresh, 6 * 3600) - 60),
+                              region: region == "GB" ? "UK" : region)
         self.session = session
         return session
     }
@@ -206,6 +303,8 @@ actor PlutoTV {
     func lineup() async throws -> (categories: [Category], channels: [LiveChannel]) {
         let channels = ((try await get("/v2/guide/channels?channelIds=&offset=0&limit=1000&sort=number%3Aasc")) as? [String: Any])?["data"] as? [[String: Any]] ?? []
         let groups = ((try? await get("/v2/guide/categories")) as? [String: Any])?["data"] as? [[String: Any]] ?? []
+        // Its categories carry the country of its line-up.
+        let tag = "|\(try await current().region)| "
         var categoryOf: [String: String] = [:]
         var categories: [Category] = []
         for group in groups {
@@ -219,9 +318,9 @@ actor PlutoTV {
                 categoryOf[channel] = "pluto|" + id
                 used = true
             }
-            if used { categories.append(Category(id: "pluto|" + id, name: "Pluto TV · " + name)) }
+            if used { categories.append(Category(id: "pluto|" + id, name: tag + "Pluto TV · " + name)) }
         }
-        let fallback = Category(id: "pluto", name: "Pluto TV")
+        let fallback = Category(id: "pluto", name: tag + "Pluto TV")
         var usesFallback = false
         let list: [LiveChannel] = channels.compactMap { channel in
             guard let id = channel["id"] as? String, let name = channel["name"] as? String else { return nil }

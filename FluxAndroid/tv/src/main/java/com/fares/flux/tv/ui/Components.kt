@@ -67,6 +67,7 @@ import com.fares.flux.core.ChannelGroup
 import com.fares.flux.core.Programme
 import com.fares.flux.core.TVPlayer
 import com.fares.flux.core.nowSeconds
+import com.fares.flux.core.tr
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -219,7 +220,7 @@ fun ChannelCard(
                     if (isPlaying) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.GraphicEq, null, tint = FluxBlue, modifier = Modifier.size(12.dp))
-                            Text(" En cours", color = FluxBlue, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text(tr(" En cours", " Playing"), color = FluxBlue, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                     if (now != null) LiveProgress(now, Modifier.fillMaxWidth().padding(top = 4.dp), height = 2.5.dp)
@@ -228,7 +229,7 @@ fun ChannelCard(
         }
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(now?.title ?: group.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(now?.let { "${group.name} · ${it.timeRange}" } ?: "En direct", fontSize = 11.sp, color = Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(now?.let { "${group.name} · ${it.timeRange}" } ?: tr("En direct", "Live"), fontSize = 11.sp, color = Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -274,9 +275,9 @@ object Categories {
     const val RECENT = "_recent"
 
     fun entries(categories: List<com.fares.flux.core.Category>, recent: Boolean): List<Pair<String, String>> {
-        val list = mutableListOf(FAVORITES to "Favoris")
-        if (recent) list.add(RECENT to "Récents")
-        list.add(ALL to "Tout")
+        val list = mutableListOf(FAVORITES to tr("Favoris", "Favorites"))
+        if (recent) list.add(RECENT to tr("Récents", "Recent"))
+        list.add(ALL to tr("Tout", "All"))
         return list + categories.map { it.id to it.name }
     }
 }
@@ -292,24 +293,6 @@ fun AppState.channels(selection: String): List<ChannelGroup> {
     }
 }
 
-/** The list of categories down the left of a catalogue screen. */
-@Composable
-fun CategoryColumn(entries: List<Pair<String, String>>, selection: String, onSelect: (String) -> Unit) {
-    val state = rememberLazyListState(initialFirstVisibleItemIndex = entries.indexOfFirst { it.first == selection }.coerceAtLeast(0))
-    LazyColumn(Modifier.width(220.dp).fillMaxHeight(), state = state, contentPadding = PaddingValues(vertical = 10.dp, horizontal = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        items(entries, key = { it.first }) { (id, name) ->
-            FocusRow(onClick = { onSelect(id) }, isCurrent = id == selection, modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(com.fares.flux.core.DisplayName.clean(name), Modifier.weight(1f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        fontWeight = if (id == selection) FontWeight.SemiBold else FontWeight.Normal)
-                    if (id == selection) Icon(Icons.Default.Check, null, Modifier.size(14.dp))
-                }
-            }
-        }
-    }
-}
-
 /** While the catalogue first loads, or when it couldn't. */
 @Composable
 fun CatalogState(empty: String) {
@@ -317,14 +300,14 @@ fun CatalogState(empty: String) {
     val catalog = app.catalog
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         if (catalog.isLoading || catalog.isStarting || catalog.isIndexing) {
-            Text("Chargement du catalogue…", color = Secondary)
+            Text(tr("Chargement du catalogue…", "Loading the catalog…"), color = Secondary)
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(if (catalog.error == null) empty else "Impossible de charger", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Text(catalog.error ?: "Le fournisseur n’a rien envoyé cette fois.", color = Secondary)
+                Text(if (catalog.error == null) empty else tr("Impossible de charger", "Couldn’t load"), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text(catalog.error ?: tr("Le fournisseur n’a rien envoyé cette fois.", "The provider didn’t send anything this time."), color = Secondary)
                 androidx.tv.material3.Button(onClick = {
                     app.accounts.client?.let { c -> app.scope.launchCatching { app.catalog.refresh(c) } }
-                }) { Text("Réessayer") }
+                }) { Text(tr("Réessayer", "Try again")) }
             }
         }
     }

@@ -194,7 +194,7 @@ struct AccountFields: View {
         Group {
             Divider().padding(.vertical, 12)
             field("Lien de la liste", systemImage: "list.bullet.rectangle") {
-                TextField("Lien", text: $draft.server, prompt: Text(verbatim: "https://exemple.com/liste.m3u"), axis: .vertical)
+                TextField("Lien", text: $draft.server, prompt: Text("https://exemple.com/liste.m3u"), axis: .vertical)
                     .lineLimit(1...3)
                     .keyboardType(.URL)
                     .textContentType(.URL)
@@ -212,7 +212,7 @@ struct AccountFields: View {
     @ViewBuilder private var panelFields: some View {
         Divider().padding(.vertical, 12)
         field("Serveur", systemImage: "server.rack") {
-            TextField("Serveur", text: $draft.server, prompt: Text(verbatim: "exemple.com:8080"))
+            TextField("Serveur", text: $draft.server, prompt: Text("exemple.com:8080"))
                 .keyboardType(.URL)
                 .textContentType(.URL)
                 .textInputAutocapitalization(.never)
@@ -242,7 +242,7 @@ struct AccountFields: View {
         }
     }
 
-    private func field<Content: View>(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
+    private func field<Content: View>(_ title: LocalizedStringKey, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
                 .foregroundStyle(.tint)

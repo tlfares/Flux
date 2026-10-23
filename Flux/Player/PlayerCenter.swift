@@ -35,6 +35,8 @@ final class PlayerCenter: NSObject {
     /// The live screen shows the picture alone.
     private(set) var isLiveFullScreen = false
     var library: Library?
+    /// The playing stream's subtitles, off unless asked for.
+    let subtitles = Subtitles()
 
     private(set) var controller: FluxPlayerController?
     private var player: AVPlayer?
@@ -80,7 +82,7 @@ final class PlayerCenter: NSObject {
         liveVariant = variant
         liveError = nil
         var details: [String] = []
-        if variant.delay > 0 { details.append("Différé +\(variant.delay) h") }
+        if variant.delay > 0 { details.append(String(localized: "Différé +\(variant.delay) h")) }
         if group.variants(delay: variant.delay).count > 1 { details.append(variant.quality.label) }
         let subtitle = details.isEmpty ? nil : details.joined(separator: " · ")
         // The free channels' addresses are looked up first: one that can't
@@ -102,10 +104,10 @@ final class PlayerCenter: NSObject {
     private func streamFailed() {
         guard let group = liveGroup, let delay = liveVariant?.delay else { return }
         if let next = group.variants(delay: delay).first(where: { !triedVariants.contains($0.id) }) {
-            fallbackNotice = "\(liveVariant?.quality.label ?? "Ce flux") ne répond pas · \(next.quality.label)"
+            fallbackNotice = String(localized: "\(liveVariant?.quality.label ?? String(localized: "Ce flux")) ne répond pas · \(next.quality.label)")
             start(group, next)
         } else {
-            liveError = "Cette chaîne ne répond pas pour le moment."
+            liveError = String(localized: "Cette chaîne ne répond pas pour le moment.")
         }
     }
 
@@ -187,6 +189,7 @@ final class PlayerCenter: NSObject {
         // sizes its buffer from the playlist's segments.
         if !item.isLive { playerItem.preferredForwardBufferDuration = 20 }
         playerItem.externalMetadata = metadata(for: item)
+        subtitles.load(playerItem)
         statusObservation = playerItem.observe(\.status) { [weak self] item, _ in
             guard item.status == .failed else { return }
             Task { @MainActor in
@@ -203,6 +206,8 @@ final class PlayerCenter: NSObject {
             // on its last frame and playback never picks up again.
             player.automaticallyWaitsToMinimizeStalling = true
             player.allowsExternalPlayback = true
+            // Subtitles are chosen by hand (`Subtitles`), not from the playlist's defaults.
+            player.appliesMediaSelectionCriteriaAutomatically = false
             self.player = player
         }
         if let resume = item.resumeAt {
@@ -238,6 +243,7 @@ final class PlayerCenter: NSObject {
         statusObservation = nil
         player?.pause()
         player?.replaceCurrentItem(with: nil)
+        subtitles.clear()
         controller?.player = nil
         // Presented itself, not a child of a screen that is.
         if let controller, controller.parent == nil, controller.presentingViewController != nil { controller.dismiss(animated: false) }

@@ -38,8 +38,8 @@ enum FavoritesStyle: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .separate: "Liste à part"
-        case .pinned: "Épinglés"
+        case .separate: String(localized: "Liste à part")
+        case .pinned: String(localized: "Épinglés")
         }
     }
 
@@ -188,6 +188,14 @@ final class Library {
     func resumePosition(_ key: String) -> Double? {
         guard let p = progress[key], p.isResumable else { return nil }
         return p.position
+    }
+
+    /// Forgets what was watched: recent channels and where each film stopped.
+    func clearHistory() {
+        progress = [:]
+        recentChannels = []
+        defaults.removeObject(forKey: progressKey)
+        defaults.removeObject(forKey: recentKey)
     }
 
     // MARK: Live

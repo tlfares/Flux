@@ -19,17 +19,17 @@ import javax.net.ssl.SSLException
 
 class XtreamException(message: String, val transient: Boolean = false) : Exception(message)
 
-/** In French, and about the server rather than about Android. */
+/** In the device's language, and about the server rather than about Android. */
 val Throwable.readableMessage: String
     get() = when (this) {
         is XtreamException -> message ?: ""
-        is UnknownHostException -> "Serveur introuvable. Vérifie l’adresse."
-        is ConnectException -> "Le serveur refuse la connexion. Vérifie le port."
-        is SocketTimeoutException -> "Le serveur met trop de temps à répondre."
-        is SSLException -> "Connexion sécurisée impossible. Essaie en http://."
-        is kotlinx.serialization.SerializationException, is IllegalArgumentException -> "Le serveur n’a pas répondu comme un serveur Xtream."
-        is IOException -> "Erreur réseau."
-        else -> message ?: "Erreur."
+        is UnknownHostException -> tr("Serveur introuvable. Vérifie l’adresse.", "Server not found. Check the address.")
+        is ConnectException -> tr("Le serveur refuse la connexion. Vérifie le port.", "The server refused the connection. Check the port.")
+        is SocketTimeoutException -> tr("Le serveur met trop de temps à répondre.", "The server is taking too long to respond.")
+        is SSLException -> tr("Connexion sécurisée impossible. Essaie en http://.", "Couldn’t make a secure connection. Try http://.")
+        is kotlinx.serialization.SerializationException, is IllegalArgumentException -> tr("Le serveur n’a pas répondu comme un serveur Xtream.", "The server didn’t respond like an Xtream server.")
+        is IOException -> tr("Erreur réseau.", "Network error.")
+        else -> message ?: tr("Erreur.", "Error.")
     }
 
 /** The Xtream Codes `player_api.php`, and where each stream plays from. */
@@ -49,7 +49,7 @@ class XtreamClient(val credentials: Credentials) {
             extra.forEach { (k, v) -> add("$k=${enc(v)}") }
         }.joinToString("&")
         val url = runCatching { URL(credentials.baseURL + "/player_api.php?" + query) }.getOrNull()
-        if (url == null || url.host.isNullOrEmpty()) throw XtreamException("L’adresse du serveur n’est pas valide.")
+        if (url == null || url.host.isNullOrEmpty()) throw XtreamException(tr("L’adresse du serveur n’est pas valide.", "The server address isn’t valid."))
         return url
     }
 
@@ -58,18 +58,12 @@ class XtreamClient(val credentials: Credentials) {
         var attempt = 0
         while (true) {
             try {
-                val connection = url.openConnection() as HttpURLConnection
-                connection.connectTimeout = 30_000
-                connection.readTimeout = 60_000
-                connection.setRequestProperty("User-Agent", USER_AGENT)
-                try {
-                    val code = connection.responseCode
-                    if (code == 401 || code == 403) throw XtreamException("Identifiants refusés par le serveur.")
-                    if (code !in 200..299) throw XtreamException("Le serveur a répondu $code.", transient = code >= 500 || code == 429)
-                    val text = connection.inputStream.bufferedReader().use { it.readText() }
+                Net.get(url.toString(), 30, 60, mapOf("User-Agent" to USER_AGENT)).use { response ->
+                    val code = response.code
+                    if (code == 401 || code == 403) throw XtreamException(tr("Identifiants refusés par le serveur.", "The server rejected the username or password."))
+                    if (code !in 200..299) throw XtreamException(tr("Le serveur a répondu $code.", "The server responded with error $code."), transient = code >= 500 || code == 429)
+                    val text = response.body!!.string()
                     return@withContext json.parseToJsonElement(text)
-                } finally {
-                    connection.disconnect()
                 }
             } catch (e: Exception) {
                 // Panels behind Cloudflare answer 5xx to bursts, and drop
@@ -91,16 +85,12 @@ class XtreamClient(val credentials: Credentials) {
         var attempt = 0
         while (true) {
             try {
-                val connection = url.openConnection() as HttpURLConnection
-                connection.connectTimeout = 30_000
-                connection.readTimeout = 120_000
-                connection.setRequestProperty("User-Agent", USER_AGENT)
-                try {
-                    val code = connection.responseCode
-                    if (code == 401 || code == 403) throw XtreamException("Identifiants refusés par le serveur.")
-                    if (code !in 200..299) throw XtreamException("Le serveur a répondu $code.", transient = code >= 500 || code == 429)
+                Net.get(url.toString(), 30, 120, mapOf("User-Agent" to USER_AGENT)).use { response ->
+                    val code = response.code
+                    if (code == 401 || code == 403) throw XtreamException(tr("Identifiants refusés par le serveur.", "The server rejected the username or password."))
+                    if (code !in 200..299) throw XtreamException(tr("Le serveur a répondu $code.", "The server responded with error $code."), transient = code >= 500 || code == 429)
                     val items = ArrayList<T>()
-                    android.util.JsonReader(connection.inputStream.bufferedReader()).use { reader ->
+                    android.util.JsonReader(response.body!!.charStream()).use { reader ->
                         reader.isLenient = true
                         if (reader.peek() != android.util.JsonToken.BEGIN_ARRAY) { reader.skipValue(); return@use }
                         reader.beginArray()
@@ -110,8 +100,6 @@ class XtreamClient(val credentials: Credentials) {
                         }
                     }
                     return@withContext items
-                } finally {
-                    connection.disconnect()
                 }
             } catch (e: Exception) {
                 attempt++
@@ -157,8 +145,8 @@ class XtreamClient(val credentials: Credentials) {
     suspend fun account(): AccountInfo {
         if (!isPanel) { playlist(0); return AccountInfo.unlimited }
         val info = (fetch(null) as? JsonObject)?.let { AccountInfo.from(it) }
-            ?: throw XtreamException("Le serveur n’a pas répondu comme un serveur Xtream.")
-        if (!info.authenticated) throw XtreamException("Identifiants refusés par le serveur.")
+            ?: throw XtreamException(tr("Le serveur n’a pas répondu comme un serveur Xtream.", "The server didn’t respond like an Xtream server."))
+        if (!info.authenticated) throw XtreamException(tr("Identifiants refusés par le serveur.", "The server rejected the username or password."))
         return info
     }
 
@@ -184,7 +172,7 @@ class XtreamClient(val credentials: Credentials) {
     suspend fun seriesDetails(id: Int): SeriesDetails {
         if (!isPanel) return SeriesDetails(null, null, null, null, null, playlist(Long.MAX_VALUE).episodes[id] ?: emptyMap())
         val root = fetch("get_series_info", mapOf("series_id" to id.toString())) as? JsonObject
-            ?: throw XtreamException("Le serveur n’a pas répondu comme un serveur Xtream.")
+            ?: throw XtreamException(tr("Le serveur n’a pas répondu comme un serveur Xtream.", "The server didn’t respond like an Xtream server."))
         return SeriesDetails.from(root)
     }
 

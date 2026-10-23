@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -58,6 +59,7 @@ import com.fares.flux.core.MovieDetails
 import com.fares.flux.core.SearchResults
 import com.fares.flux.core.Series
 import com.fares.flux.core.SeriesDetails
+import com.fares.flux.core.tr
 import kotlinx.coroutines.delay
 
 /** Where a poster leads. */
@@ -84,8 +86,8 @@ fun RoutePage(route: Route, close: () -> Unit) {
 @Composable
 private fun <T> PosterBrowser(
     empty: String,
-    categories: List<com.fares.flux.core.Category>,
-    isEmpty: Boolean,
+    kind: MediaKind,
+    section: com.fares.flux.core.CatalogSection<*>,
     items: List<T>,
     selection: String,
     onSelect: (String) -> Unit,
@@ -98,12 +100,12 @@ private fun <T> PosterBrowser(
 ) {
     val app = LocalApp.current
     val open = LocalOpenRoute.current
-    if (isEmpty) { CatalogState(empty); return }
+    if (section.isEmpty) { CatalogState(empty); return }
     Row(Modifier.fillMaxSize().padding(start = 20.dp), horizontalArrangement = Arrangement.spacedBy(15.dp)) {
-        CategoryColumn(Categories.entries(categories, recent = false), selection, onSelect)
+        CategoryColumn(kind, section.categories, recent = false, selection, { section.index[it]?.size ?: 0 }, onSelect)
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(if (selection == Categories.FAVORITES) "Aucun favori. Maintiens le clic sur une affiche pour l’ajouter." else "Rien ici", color = Secondary)
+                Text(if (selection == Categories.FAVORITES) tr("Aucun favori. Maintiens le clic sur une affiche pour l’ajouter.", "No favorites yet. Press and hold OK on a poster to add it.") else tr("Rien ici", "Nothing here"), color = Secondary)
             }
         } else {
             LazyVerticalGrid(GridCells.Adaptive(110.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 15.dp, bottom = 30.dp, end = 30.dp),
@@ -127,7 +129,7 @@ fun MoviesScreen() {
         Categories.ALL -> app.catalog.movies.items
         else -> app.catalog.movies.items(selection)
     }
-    PosterBrowser("Aucun film", app.catalog.movies.categories, app.catalog.movies.isEmpty, movies, selection, { selection = it },
+    PosterBrowser(tr("Aucun film", "No movies"), MediaKind.MOVIE, app.catalog.movies, movies, selection, { selection = it },
         key = { it.id }, title = { DisplayName.clean(it.name) }, image = { it.poster },
         progress = { app.library.progress[Library.key(MediaKind.MOVIE, it.id)]?.fraction },
         favorite = { Favorite.movie(it) }, route = { Route.MovieRoute(it) })
@@ -144,7 +146,7 @@ fun SeriesScreen() {
         Categories.ALL -> app.catalog.series.items
         else -> app.catalog.series.items(selection)
     }
-    PosterBrowser("Aucune série", app.catalog.series.categories, app.catalog.series.isEmpty, series, selection, { selection = it },
+    PosterBrowser(tr("Aucune série", "No series"), MediaKind.SERIES, app.catalog.series, series, selection, { selection = it },
         key = { it.id }, title = { DisplayName.clean(it.name) }, image = { it.cover },
         favorite = { Favorite.series(it) }, route = { Route.SeriesRoute(it) })
 }
@@ -183,7 +185,7 @@ private fun DetailPage(
 private fun FavoriteButton(favorite: Favorite) {
     val app = LocalApp.current
     val on = app.library.isFavorite(favorite)
-    OutlinedButton(onClick = { app.library.toggleFavorite(favorite) }) { Text(if (on) "★  Retirer des favoris" else "☆  Ajouter aux favoris") }
+    OutlinedButton(onClick = { app.library.toggleFavorite(favorite) }) { Text(if (on) tr("★  Retirer des favoris", "★  Remove from favorites") else tr("☆  Ajouter aux favoris", "☆  Add to favorites")) }
 }
 
 @Composable
@@ -199,13 +201,13 @@ private fun MovieDetail(movie: Movie) {
     val d = details
     val facts = listOfNotNull(d?.year, d?.duration, d?.genre, movie.rating?.let { "★ " + "%.1f".format(it) })
     DetailPage(DisplayName.clean(movie.name), d?.backdrop, d?.poster ?: movie.poster, facts, d?.plot, actions = {
-        Button(onClick = { app.accounts.client?.let { player.play(movie, it) } }) { Text(if (resumable) "▶  Reprendre" else "▶  Lecture") }
-        if (resumable) OutlinedButton(onClick = { app.accounts.client?.let { player.play(movie, it, fromStart = true) } }) { Text("↺  Depuis le début") }
+        Button(onClick = { app.accounts.client?.let { player.play(movie, it) } }) { Text(if (resumable) tr("▶  Reprendre", "▶  Resume") else tr("▶  Lecture", "▶  Play")) }
+        if (resumable) OutlinedButton(onClick = { app.accounts.client?.let { player.play(movie, it, fromStart = true) } }) { Text(tr("↺  Depuis le début", "↺  Start over")) }
         FavoriteButton(Favorite.movie(movie))
     }) {
         Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            d?.director?.let { Credit("Réalisation", it) }
-            d?.cast?.let { Credit("Avec", it) }
+            d?.director?.let { Credit(tr("Réalisation", "Director"), it) }
+            d?.cast?.let { Credit(tr("Avec", "Cast"), it) }
         }
     }
 }
@@ -247,25 +249,25 @@ private fun SeriesDetail(series: Series) {
             .onFailure { failed = true }
     }
     val d = details
-    val facts = listOfNotNull(d?.year ?: series.year, d?.genre, seasons.size.takeIf { it > 0 }?.let { if (it == 1) "1 saison" else "$it saisons" })
+    val facts = listOfNotNull(d?.year ?: series.year, d?.genre, seasons.size.takeIf { it > 0 }?.let { if (it == 1) tr("1 saison", "1 season") else tr("$it saisons", "$it seasons") })
     DetailPage(DisplayName.clean(series.name), d?.backdrop, series.cover, facts, d?.plot, actions = {
         nextEpisode()?.let { next ->
             val started = app.library.progress[Library.key(MediaKind.SERIES, next.id)] != null
             Button(onClick = { app.accounts.client?.let { player.play(next, series, it) } }) {
-                Text("▶  ${if (started) "Reprendre" else "Lecture"} S${next.season} E${next.number}")
+                Text("▶  ${if (started) tr("Reprendre", "Resume") else tr("Lecture", "Play")} S${next.season} E${next.number}")
             }
         }
         FavoriteButton(Favorite.series(series))
     }) {
         when {
-            d == null && !failed -> Text("Chargement…", color = Secondary, modifier = Modifier.padding(top = 20.dp))
-            seasons.isEmpty() -> Text("Aucun épisode.", color = Secondary, modifier = Modifier.padding(top = 20.dp))
+            d == null && !failed -> Text(tr("Chargement…", "Loading…"), color = Secondary, modifier = Modifier.padding(top = 20.dp))
+            seasons.isEmpty() -> Text(tr("Aucun épisode.", "No episodes."), color = Secondary, modifier = Modifier.padding(top = 20.dp))
             else -> Column(Modifier.padding(top = 15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 val current = season ?: seasons[0]
                 if (seasons.size > 1) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
                     items(seasons) { s ->
                         FocusRow(onClick = { season = s }, isCurrent = s == current, shape = RoundedCornerShape(50)) {
-                            Text("Saison $s", Modifier.padding(horizontal = 13.dp, vertical = 6.dp), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(tr("Saison $s", "Season $s"), Modifier.padding(horizontal = 13.dp, vertical = 6.dp), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -297,7 +299,7 @@ private fun EpisodeCard(episode: Episode, series: Series, backdrop: String?) {
                 }
             }
         }
-        Text("Épisode ${episode.number}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(tr("Épisode ${episode.number}", "Episode ${episode.number}"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         ownTitle(episode)?.let { Text(it, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         episode.plot?.let { Text(it, fontSize = 10.sp, color = Secondary, maxLines = 2, overflow = TextOverflow.Ellipsis) }
     }
@@ -308,7 +310,7 @@ private fun ownTitle(episode: Episode): String? {
     var title = episode.title
     Regex("S\\d+\\s*E\\d+", RegexOption.IGNORE_CASE).find(title)?.let { title = title.substring(it.range.last + 1) }
     val trimmed = title.trim { it in " -–:·." }
-    return if (trimmed.isEmpty() || trimmed.lowercase() == "épisode ${episode.number}") null else trimmed
+    return if (trimmed.isEmpty() || trimmed.lowercase() in setOf("épisode ${episode.number}", "episode ${episode.number}")) null else trimmed
 }
 
 /** Channels, films and series by name. */
@@ -325,27 +327,27 @@ fun SearchScreen() {
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 15.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item {
-            TextInput(query, { query = it }, "Chaînes, films, séries", Modifier.padding(horizontal = 40.dp).width(520.dp))
+            TextInput(query, { query = it }, tr("Chaînes, films, séries", "Channels, movies, series"), Modifier.padding(horizontal = 40.dp).width(520.dp))
         }
         if (results.live.isNotEmpty()) item {
-            Shelf("Chaînes") {
+            Shelf(tr("Chaînes", "Channels")) {
                 items(results.live, key = { it.id }) { group ->
                     ChannelCard(group, 200.dp) { app.accounts.client?.let { player.watch(group, results.live, it) } }
                 }
             }
         }
         if (results.movies.isNotEmpty()) item {
-            Shelf("Films") {
+            Shelf(tr("Films", "Movies")) {
                 items(results.movies, key = { it.id }) { m -> PosterCard(DisplayName.clean(m.name), m.poster) { open(Route.MovieRoute(m)) } }
             }
         }
         if (results.series.isNotEmpty()) item {
-            Shelf("Séries") {
+            Shelf(tr("Séries", "Series")) {
                 items(results.series, key = { it.id }) { s -> PosterCard(DisplayName.clean(s.name), s.cover) { open(Route.SeriesRoute(s)) } }
             }
         }
         if (results.isEmpty && query.isNotBlank()) item {
-            Text("Aucun résultat pour « $query »", Modifier.fillMaxWidth().padding(top = 40.dp), color = Secondary,
+            Text(tr("Aucun résultat pour « $query »", "No results for “$query”"), Modifier.fillMaxWidth().padding(top = 40.dp), color = Secondary,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
@@ -365,14 +367,19 @@ fun TextInput(value: String, onChange: (String) -> Unit, placeholder: String, mo
     var editing by remember { mutableStateOf(false) }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    // The text with its cursor, put at the end when the field is reached.
+    var field by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value)) }
+    if (field.text != value) field = androidx.compose.ui.text.input.TextFieldValue(value, androidx.compose.ui.text.TextRange(value.length))
+    var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
     LaunchedEffect(editing) { if (editing) keyboard?.show() }
     BasicTextField(
-        value = value,
-        onValueChange = onChange,
+        value = field,
+        onValueChange = { field = it; if (it.text != value) onChange(it.text) },
+        onTextLayout = { layout = it },
         readOnly = !editing,
         singleLine = true,
         textStyle = TextStyle(color = Color.White, fontSize = 16.sp),
-        cursorBrush = SolidColor(if (editing) FluxBlue else Color.Transparent),
+        cursorBrush = SolidColor(FluxBlue),
         visualTransformation = if (password) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         keyboardOptions = KeyboardOptions(
             imeAction = if (next) ImeAction.Next else ImeAction.Done,
@@ -390,9 +397,9 @@ fun TextInput(value: String, onChange: (String) -> Unit, placeholder: String, mo
             },
             onDone = { editing = false; keyboard?.hide() },
         ),
-        // OK starts typing; until then, left and right go to what's beside
-        // the field. While typing, they move the cursor through the text.
+        // OK starts typing where the cursor is.
         modifier = modifier.onFocusChanged {
+            if (it.isFocused && !focused) field = field.copy(selection = androidx.compose.ui.text.TextRange(field.text.length))
             focused = it.isFocused
             if (!it.isFocused) editing = false
             else if (keepTyping) { keepTyping = false; editing = true }
@@ -401,12 +408,25 @@ fun TextInput(value: String, onChange: (String) -> Unit, placeholder: String, mo
             when (event.nativeKeyEvent.keyCode) {
                 android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER, android.view.KeyEvent.KEYCODE_NUMPAD_ENTER ->
                     if (!editing) { editing = true; true } else false
-                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> !editing && focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
-                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> !editing && focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right)
+                // Left and right move through the letters, done here: from a
+                // remote, the field itself takes them as leaving it. Past the
+                // first letter or the last, to what's beside, unless typing.
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    val at = field.selection.start
+                    if (at > 0) field = field.copy(selection = androidx.compose.ui.text.TextRange(at - 1))
+                    else if (!editing) focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
+                    true
+                }
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    val at = field.selection.end
+                    if (at < field.text.length) field = field.copy(selection = androidx.compose.ui.text.TextRange(at + 1))
+                    else if (!editing) focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Right)
+                    true
+                }
                 // A single line: up and down leave it, typing or not.
                 android.view.KeyEvent.KEYCODE_DPAD_UP -> focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up)
                 android.view.KeyEvent.KEYCODE_DPAD_DOWN -> focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
-                // The keyboard closed already: back ends typing, and left and right go beside again.
+                // The keyboard closed already: back ends typing.
                 android.view.KeyEvent.KEYCODE_BACK -> if (editing) { editing = false; keyboard?.hide(); true } else false
                 else -> false
             }
@@ -416,7 +436,16 @@ fun TextInput(value: String, onChange: (String) -> Unit, placeholder: String, mo
                 .border(2.dp, if (focused) Color.White else Color.Transparent, RoundedCornerShape(10.dp))
                 .padding(horizontal = 16.dp, vertical = 12.dp)) {
                 if (value.isEmpty()) Text(placeholder, color = Tertiary, fontSize = 16.sp)
-                inner()
+                // A read-only field draws no cursor: drawn here, so left and
+                // right are seen moving through the letters before OK.
+                Box(Modifier.drawWithContent {
+                    drawContent()
+                    val text = layout
+                    if (focused && !editing && text != null && field.text.isNotEmpty()) {
+                        val at = text.getCursorRect(field.selection.start.coerceIn(0, text.layoutInput.text.length))
+                        drawLine(FluxBlue, at.topCenter, at.bottomCenter, strokeWidth = 2.dp.toPx())
+                    }
+                }) { inner() }
             }
         },
     )

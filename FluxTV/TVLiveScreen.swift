@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 /// Live TV on the whole screen, as Oqee does it: the banner comes up from
@@ -35,6 +36,28 @@ struct TVLiveScreen: View {
                 .focused($pictureFocused)
                 .disabled(showsList)
                 .onMoveCommand(perform: move)
+                // Held down: the channel's other streams and the subtitles, when there are some.
+                .contextMenu {
+                    if let group = player.channel, group.hasChoice {
+                        Section("Regarder en") {
+                            ForEach(group.variants(delay: player.variant?.delay ?? group.baseDelay), id: \.id) { variant in
+                                Button { player.pick(variant) } label: {
+                                    if variant.id == player.variant?.id { Label(variant.quality.label, systemImage: "checkmark") }
+                                    else { Text(variant.quality.label) }
+                                }
+                            }
+                        }
+                    }
+                    let subtitles = player.subtitles
+                    if !subtitles.options.isEmpty {
+                        Picker("Sous-titres", selection: Binding(get: { subtitles.selected }, set: { subtitles.choose($0) })) {
+                            Text("Désactivés").tag(AVMediaSelectionOption?.none)
+                            ForEach(subtitles.options, id: \.self) { option in
+                                Text(Subtitles.name(option)).tag(Optional(option))
+                            }
+                        }
+                    }
+                }
 
             if showsBanner, !showsList {
                 TVLiveBanner()
@@ -196,7 +219,7 @@ private struct TVLiveBanner: View {
                 .padding(.vertical, 34)
                 .glassEffect(.regular, in: .rect(cornerRadius: 44))
                 .overlay(alignment: .bottomTrailing) {
-                    Text("▲▼ Chaîne  ·  ▶ Liste des chaînes")
+                    Text(hint(group))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .padding(.trailing, 44)
@@ -212,9 +235,19 @@ private struct TVLiveBanner: View {
         }
     }
 
+    /// The remote's keys, and the long press when it has something to offer.
+    private func hint(_ group: ChannelGroup) -> String {
+        let keys = String(localized: "▲▼ Chaîne  ·  ▶ Liste des chaînes")
+        let streams = group.hasChoice, subtitles = !player.subtitles.options.isEmpty
+        if streams && subtitles { return keys + String(localized: "  ·  Appui long : flux et sous-titres") }
+        if streams { return keys + String(localized: "  ·  Appui long : changer de flux") }
+        if subtitles { return keys + String(localized: "  ·  Appui long : sous-titres") }
+        return keys
+    }
+
     private func remaining(_ p: Programme) -> String {
         let minutes = max(0, Int(p.end.timeIntervalSinceNow / 60))
-        return minutes >= 60 ? "\(minutes / 60) h \(String(format: "%02d", minutes % 60)) restantes" : "\(minutes) min restantes"
+        return minutes >= 60 ? String(localized: "\(minutes / 60) h \(String(format: "%02d", minutes % 60)) restantes") : String(localized: "\(minutes) min restantes")
     }
 }
 
@@ -250,7 +283,7 @@ private struct TVChannelList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(spacing: 16) {
-                tab("Toutes les chaînes", on: !favoritesOnly) { favoritesOnly = false }
+                tab(String(localized: "Toutes les chaînes"), on: !favoritesOnly) { favoritesOnly = false }
                 tab("Favoris", on: favoritesOnly) { favoritesOnly = true }
             }
             .focusSection()

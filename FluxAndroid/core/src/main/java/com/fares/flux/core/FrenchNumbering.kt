@@ -6,13 +6,16 @@ import java.util.Locale
 
 /** The numbers channels go by, from the provider's list or from a French
  *  line-up people know by heart: the TNT, or their box's. */
-enum class ChannelNumbering(val raw: String, val title: String) {
-    PROVIDER("provider", "Fournisseur"),
-    TNT("tnt", "TNT"),
-    ORANGE("orange", "Orange"),
-    BOUYGUES("bouygues", "Bouygues"),
-    FREE("free", "Free"),
-    SFR("sfr", "SFR");
+enum class ChannelNumbering(val raw: String, private val french: String, private val english: String = french) {
+    PROVIDER("provider", "Fournisseur", "Provider"),
+    // The French line-ups carry a flag in English: French is known without it.
+    TNT("tnt", "TNT", "🇫🇷 TNT"),
+    ORANGE("orange", "Orange", "🇫🇷 Orange"),
+    BOUYGUES("bouygues", "Bouygues", "🇫🇷 Bouygues"),
+    FREE("free", "Free", "🇫🇷 Free"),
+    SFR("sfr", "SFR", "🇫🇷 SFR");
+
+    val title: String get() = tr(french, english)
 
     /** Channel key ("fr|tf1") → number. A channel listed twice keeps its first number. */
     val numbers: Map<String, Int>

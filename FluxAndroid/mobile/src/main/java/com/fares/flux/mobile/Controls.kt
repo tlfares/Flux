@@ -1,5 +1,22 @@
 package com.fares.flux.mobile
 
+import androidx.compose.animation.*
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.fares.flux.core.*
+import androidx.compose.ui.graphics.*
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.ui.draw.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.*
+import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.interaction.*
+import androidx.compose.runtime.*
+import androidx.compose.animation.core.*
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -84,6 +101,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fares.flux.core.tr
 
 /** iOS's snappy spring, for everything that slides. */
 fun <T> snappy() = spring<T>(dampingRatio = 0.82f, stiffness = 520f)
@@ -101,27 +119,36 @@ fun GlassCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.()
 @Composable
 fun CardTitle(title: String, icon: ImageVector? = null) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        icon?.let { Icon(it, null, Modifier.size(20.dp), tint = FluxBlue) }
-        Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        icon?.let { Icon(it, null, Modifier.size(22.dp), tint = FluxBlue) }
+        Text(title, style = IOS.headline)
     }
 }
 
 @Composable
-fun Footnote(text: String) = Text(text, fontSize = 13.sp, color = Secondary, lineHeight = 17.sp)
+fun Footnote(text: String) = Text(text, style = IOS.footnote, color = Secondary)
+
+/** A setting's label above its control: `.subheadline`, secondary. */
+@Composable
+fun FieldLabel(text: String) = Text(text, style = IOS.subheadline, color = Secondary)
 
 @Composable
-fun HairlineDivider() = Box(Modifier.fillMaxWidth().height(0.5.dp).background(Ink.copy(alpha = 0.14f)))
+fun HairlineDivider() = Box(Modifier.fillMaxWidth().height(0.5.dp).background(Separator))
 
 /** A capsule picker whose selection slides between options and can be
- *  dragged, as iOS's GlassSegmentedPicker. */
+ *  dragged, as iOS's GlassSegmentedPicker. Over each label, a symbol
+ *  (`icon`) or an emoji (`mark`, a flag). */
 @Composable
-fun <T> SegmentedPicker(options: List<T>, selected: T, title: (T) -> String, icon: ((T) -> ImageVector)? = null, onSelect: (T) -> Unit) {
+fun <T> SegmentedPicker(
+    options: List<T>, selected: T, title: (T) -> String, icon: ((T) -> ImageVector)? = null, mark: ((T) -> String)? = null, onSelect: (T) -> Unit,
+) {
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     var dragX by remember { mutableStateOf<Float?>(null) }
     val pressed = remember { mutableStateOf(false) }
     val index = options.indexOf(selected).coerceAtLeast(0)
-    val height = if (icon == null) 40.dp else 56.dp
+    val stacked = icon != null || mark != null
+    // As iOS's: 40 pt, 58 with a symbol, 66 with a flag, inset by 4.
+    val height = when { mark != null -> 66.dp; stacked -> 58.dp; else -> 40.dp }
     BoxWithConstraints(
         Modifier.fillMaxWidth().height(height + 8.dp).glassPanel(RoundedCornerShape(50)).padding(4.dp),
     ) {
@@ -132,12 +159,11 @@ fun <T> SegmentedPicker(options: List<T>, selected: T, title: (T) -> String, ico
         val offset by animateDpAsState(
             dragX?.let { with(density) { it.toDp() } } ?: (segment * index), if (dragX != null) spring(stiffness = Spring.StiffnessHigh) else snappy(), label = "lens",
         )
-        val lift by animateFloatAsState(if (pressed.value) 1.08f else 1f, snappy(), label = "lift")
-        // The selection: a lens tinted with the logo's colors.
+        val lift by animateFloatAsState(if (pressed.value) 1.1f else 1f, spring(dampingRatio = 0.7f, stiffness = 630f), label = "lift")
+        // The selection: the tint at 30% (22% while held), as iOS's.
         Box(
             Modifier.offset(x = offset).width(segment).fillMaxHeight().scale(lift).clip(RoundedCornerShape(50))
-                .background(Brush.horizontalGradient(listOf(FluxBlue.copy(alpha = 0.55f), FluxViolet.copy(alpha = 0.55f))))
-                .border(1.dp, Brush.verticalGradient(listOf(Ink.copy(alpha = 0.45f), Ink.copy(alpha = 0.08f))), RoundedCornerShape(50)),
+                .background(FluxBlue.copy(alpha = if (pressed.value) 0.22f else 0.30f)),
         )
         Row(
             Modifier.fillMaxSize()
@@ -172,31 +198,35 @@ fun <T> SegmentedPicker(options: List<T>, selected: T, title: (T) -> String, ico
                 val color by animateColorAsState(if (on) Ink else Secondary, label = "label")
                 Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                     icon?.let { Icon(it(option), null, Modifier.size(20.dp), tint = color) }
-                    Text(title(option), fontSize = if (icon == null) 14.sp else 11.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
+                    mark?.let { Text(it(option), style = IOS.headline) }
+                    if (stacked) Spacer(Modifier.height(5.dp))
+                    Text(title(option), style = (if (stacked) IOS.caption2 else IOS.subheadline).copy(fontWeight = FontWeight.SemiBold), color = color, maxLines = 1)
                 }
             }
         }
     }
 }
 
-/** iOS's switch: a capsule that fills with the logo's colors, its white knob
- *  sliding over and stretching while held. */
+/** iOS 26's switch: a 64×28 capsule in the tint, its white pill of a knob
+ *  (37×24) sliding over, swelling into a lens while held. */
 @Composable
 fun IOSSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
     val haptics = LocalHapticFeedback.current
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val knob by animateDpAsState(if (checked) 20.dp else 0.dp, snappy(), label = "knob")
-    val stretch by animateDpAsState(if (pressed) 8.dp else 0.dp, snappy(), label = "stretch")
+    val knob by animateDpAsState(if (checked) 25.dp else 0.dp, snappy(), label = "knob")
+    val swell by animateFloatAsState(if (pressed) 1.25f else 1f, spring(dampingRatio = 0.6f, stiffness = 600f), label = "swell")
     val fill by animateFloatAsState(if (checked) 1f else 0f, snappy(), label = "fill")
     Box(
-        Modifier.size(51.dp, 31.dp).clip(RoundedCornerShape(50)).background(Ink.copy(alpha = 0.16f))
+        Modifier.size(64.dp, 28.dp)
             .clickable(source, indication = null) { haptics.performHapticFeedback(if (checked) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn); onChange(!checked) },
     ) {
-        Box(Modifier.fillMaxSize().alpha(fill).background(Brush.horizontalGradient(listOf(FluxBlue, FluxViolet))))
+        Box(Modifier.fillMaxSize().clip(RoundedCornerShape(50)).background(if (Palette.dark) Color(0x5C787880) else Color(0x29787880)))
+        Box(Modifier.fillMaxSize().clip(RoundedCornerShape(50)).alpha(fill).background(FluxBlue))
         Box(
-            Modifier.padding(2.dp).offset(x = if (checked) knob - stretch else knob).width(27.dp + stretch).height(27.dp)
-                .shadow(3.dp, RoundedCornerShape(50)).background(Color.White, RoundedCornerShape(50)),
+            Modifier.padding(2.dp).offset(x = knob).size(37.dp, 24.dp).scale(swell)
+                .shadow(if (pressed) 6.dp else 2.dp, RoundedCornerShape(50))
+                .background(if (pressed) Color.White.copy(alpha = 0.92f) else Color.White, RoundedCornerShape(50)),
         )
     }
 }
@@ -205,7 +235,7 @@ fun IOSSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
 @Composable
 fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), fontSize = 15.sp)
+        Text(label, Modifier.weight(1f), style = IOS.body)
         IOSSwitch(checked, onChange)
     }
 }
@@ -216,14 +246,16 @@ fun <T> MenuPicker(label: String, options: List<T>, selected: T, title: (T) -> S
     var open by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), fontSize = 15.sp)
+        Text(label, Modifier.weight(1f), style = IOS.body)
         Box {
+            // A menu Picker in `.buttonStyle(.glass)`: the value in the label's color.
             Row(
-                Modifier.glassPanel(RoundedCornerShape(50)).clickable { haptics.performHapticFeedback(HapticFeedbackType.ContextClick); open = true }.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
+                Modifier.pressable().glassPanel(RoundedCornerShape(50)).clickable(remember { MutableInteractionSource() }, indication = null) { haptics.performHapticFeedback(HapticFeedbackType.ContextClick); open = true }
+                    .padding(start = 16.dp, end = 12.dp).height(44.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                Text(title(selected), fontSize = 15.sp, color = FluxBlue, fontWeight = FontWeight.Medium)
-                Icon(Icons.Default.UnfoldMore, null, Modifier.size(16.dp), tint = FluxBlue)
+                Text(title(selected), style = IOS.body)
+                Icon(Icons.Default.UnfoldMore, null, Modifier.size(17.dp), tint = Ink)
             }
             DropdownMenu(open, { open = false }, shape = RoundedCornerShape(18.dp), containerColor = if (Palette.dark) Color(0xF21E1E26) else Color(0xF7F4F4F8)) {
                 options.forEach { o ->
@@ -242,7 +274,7 @@ fun GlassIconButton(icon: ImageVector, label: String, size: Dp = 44.dp, onClick:
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.9f else 1f, snappy(), label = "press")
     val haptics = LocalHapticFeedback.current
-    Box(Modifier.size(size).scale(scale).glassPanel(CircleShape).clickable(source, indication = null) { haptics.performHapticFeedback(HapticFeedbackType.ContextClick); onClick() }, contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size).scale(if (scale < 1f) 2f - scale else 1f).cardGlass(CircleShape).clickable(source, indication = null) { haptics.performHapticFeedback(HapticFeedbackType.ContextClick); onClick() }, contentAlignment = Alignment.Center) {
         Icon(icon, label, Modifier.size(size * 0.48f))
     }
 }
@@ -252,15 +284,32 @@ fun GlassIconButton(icon: ImageVector, label: String, size: Dp = 44.dp, onClick:
 fun GlassButton(text: String, prominent: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.95f else 1f, snappy(), label = "press")
+    val scale by animateFloatAsState(if (pressed) 1.04f else 1f, spring(dampingRatio = 0.6f, stiffness = 600f), label = "press")
     val haptics = LocalHapticFeedback.current
+    // `.buttonStyle(.glass)` (the label in the tint) or `.glassProminent` (the tint filled, white label).
     Box(
         modifier.scale(scale).clip(RoundedCornerShape(50))
-            .then(if (prominent) Modifier.background(Brush.horizontalGradient(listOf(FluxBlue, FluxViolet))) else Modifier)
-            .glassPanel(RoundedCornerShape(50)).clickable(source, indication = null) { haptics.performHapticFeedback(HapticFeedbackType.ContextClick); onClick() }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .then(if (prominent) Modifier.background(FluxBlue) else Modifier.glassPanel(RoundedCornerShape(50)))
+            .clickable(source, indication = null) { haptics.performHapticFeedback(HapticFeedbackType.ContextClick); onClick() }
+            .heightIn(min = 44.dp).padding(horizontal = 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
-    ) { Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = if (prominent) Color.White else FluxBlue) }
+    ) { Text(text, style = IOS.subheadline.copy(fontWeight = FontWeight.SemiBold), color = if (prominent) Color.White else FluxBlue) }
+}
+
+/** `.buttonStyle(.glass)` with a symbol and a title, both in the tint. */
+@Composable
+fun GlassLabelButton(text: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 1.03f else 1f, spring(dampingRatio = 0.6f, stiffness = 600f), label = "press")
+    Row(
+        modifier.scale(scale).glassPanel(RoundedCornerShape(50)).clickable(source, indication = null, onClick = onClick).height(40.dp),
+        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(20.dp), tint = FluxBlue)
+        Spacer(Modifier.width(8.dp))
+        Text(text, style = IOS.subheadline.copy(fontWeight = FontWeight.SemiBold), color = FluxBlue)
+    }
 }
 
 /** iOS's Motion.snappy: interactiveSpring(response: 0.34, dampingFraction: 0.84). */
@@ -290,9 +339,9 @@ fun CollapsibleCard(title: String, icon: ImageVector, key: String, content: @Com
             },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Icon(icon, null, Modifier.size(22.dp), tint = FluxBlue)
-            Text(title, Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(20.dp).rotate(180f * reveal), tint = Secondary)
+            Icon(icon, null, Modifier.width(24.dp).size(22.dp), tint = FluxBlue)
+            Text(title, Modifier.weight(1f), style = IOS.headline)
+            Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(18.dp).rotate(180f * reveal), tint = Secondary)
         }
         CompositionLocalProvider(LocalCardOpen provides open) {
             Column(
@@ -311,60 +360,3 @@ fun CollapsibleCard(title: String, icon: ImageVector, key: String, content: @Com
         }
     }
 }
-
-/** Fields stacked in one rounded group with hairlines between, as an iOS form. */
-@Composable
-fun FieldGroup(content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-            .background(Ink.copy(alpha = if (Palette.dark) 0.07f else 0.05f))
-            .border(0.75.dp, Ink.copy(alpha = 0.08f), RoundedCornerShape(20.dp)),
-        content = content,
-    )
-}
-
-/** One line of a FieldGroup: the label inside as a placeholder until typed, a
- *  clear button while filled, the line lit with the logo's colors when in use. */
-@Composable
-fun FieldRow(
-    value: String, onChange: (String) -> Unit, placeholder: String, icon: ImageVector,
-    secure: Boolean = false, keyboard: KeyboardType = KeyboardType.Text, last: Boolean = false,
-    imeAction: ImeAction = ImeAction.Next, onDone: () -> Unit = {},
-) {
-    var focused by remember { mutableStateOf(false) }
-    var shows by remember { mutableStateOf(false) }
-    val tint by animateColorAsState(if (focused) FluxBlue else Tertiary, label = "icon")
-    Box {
-        Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(icon, null, Modifier.size(20.dp), tint = tint)
-            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                if (value.isEmpty()) Text(placeholder, color = Tertiary, fontSize = 16.sp)
-                BasicTextField(
-                    value, onChange, Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
-                    singleLine = true, textStyle = TextStyle(color = Ink, fontSize = 16.sp),
-                    cursorBrush = Brush.verticalGradient(listOf(FluxBlue, FluxViolet)),
-                    visualTransformation = if (secure && !shows) PasswordVisualTransformation() else VisualTransformation.None,
-                    keyboardOptions = KeyboardOptions(keyboardType = keyboard, autoCorrectEnabled = false, imeAction = imeAction),
-                    keyboardActions = KeyboardActions(onDone = { onDone() }, onGo = { onDone() }),
-                )
-            }
-            if (secure && value.isNotEmpty()) {
-                Icon(if (shows) Icons.Default.VisibilityOff else Icons.Default.Visibility, if (shows) "Masquer" else "Afficher",
-                    Modifier.size(20.dp).clickable(remember { MutableInteractionSource() }, indication = null) { shows = !shows }, tint = Secondary)
-            } else if (focused && value.isNotEmpty()) {
-                Icon(Icons.Default.Cancel, "Effacer", Modifier.size(18.dp).clickable(remember { MutableInteractionSource() }, indication = null) { onChange("") }, tint = Tertiary)
-            }
-        }
-        if (!last) Box(Modifier.align(Alignment.BottomStart).padding(start = 48.dp).fillMaxWidth().height(0.5.dp).background(Ink.copy(alpha = 0.12f)))
-    }
-}
-
-/** iOS's regular glass on a plain backdrop: a grey veil lighter at the top,
- *  a rim catching light along the upper edge, a soft shadow on white. */
-fun Modifier.cardGlass(shape: Shape): Modifier =
-    (if (Palette.dark) this else this.shadow(10.dp, shape, ambientColor = Color.Black.copy(alpha = 0.08f), spotColor = Color.Black.copy(alpha = 0.10f)))
-        .clip(shape)
-        .background(if (Palette.dark) Color(0xFF1C1C1E).copy(alpha = 0.92f) else Color(0xFFF7F7FA))
-        .background(Brush.verticalGradient(listOf(Ink.copy(alpha = if (Palette.dark) 0.07f else 0.0f), Color.Transparent)))
-        .border(0.75.dp, Brush.verticalGradient(listOf(Ink.copy(alpha = if (Palette.dark) 0.26f else 0.10f), Ink.copy(alpha = if (Palette.dark) 0.06f else 0.04f))), shape)

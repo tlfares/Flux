@@ -7,23 +7,23 @@ nonisolated enum ChannelNumbering: String, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .provider: "Fournisseur"
-        case .tnt: "TNT"
-        case .orange: "Orange"
-        case .bouygues: "Bouygues"
-        case .free: "Free"
-        case .sfr: "SFR"
+        case .provider: String(localized: "Fournisseur")
+        case .tnt: String(localized: "numbering.tnt", defaultValue: "TNT")
+        case .orange: String(localized: "numbering.orange", defaultValue: "Orange")
+        case .bouygues: String(localized: "numbering.bouygues", defaultValue: "Bouygues")
+        case .free: String(localized: "numbering.free", defaultValue: "Free")
+        case .sfr: String(localized: "numbering.sfr", defaultValue: "SFR")
         }
     }
 
     var subtitle: String {
         switch self {
-        case .provider: "Les numéros et l’ordre de ton abonnement."
-        case .tnt: "Les numéros de la TNT : 1 TF1, 2 France 2…"
-        case .orange: "Les numéros de la TV d’Orange."
-        case .bouygues: "Les numéros de la Bbox."
-        case .free: "Les numéros de la Freebox."
-        case .sfr: "Les numéros de la box SFR."
+        case .provider: String(localized: "Les numéros et l’ordre de ton abonnement.")
+        case .tnt: String(localized: "Les numéros de la TNT : 1 TF1, 2 France 2…")
+        case .orange: String(localized: "Les numéros de la TV d’Orange.")
+        case .bouygues: String(localized: "Les numéros de la Bbox.")
+        case .free: String(localized: "Les numéros de la Freebox.")
+        case .sfr: String(localized: "Les numéros de la box SFR.")
         }
     }
 

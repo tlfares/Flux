@@ -35,7 +35,7 @@ import java.util.UUID
 private val storeJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
 
 /** Settings, under the Apple apps' keys: pairing sends them by those names. */
-class Settings(context: Context) {
+class Settings(context: Context, tv: Boolean = false) {
     val prefs: SharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     var quality by mutableStateOf(QualityPreference.of(prefs.getString(QualityPreference.STORAGE_KEY, null)))
@@ -48,14 +48,50 @@ class Settings(context: Context) {
         private set
     var prefersFree by mutableStateOf(prefs.getBoolean(GuideOptions.PREFERS_FREE_KEY, true))
         private set
+    /** Subtitles shown: off unless turned on, whatever streams flag as default. */
+    var subtitles by mutableStateOf(prefs.getBoolean(SUBTITLES_KEY, false))
+        private set
+
+    /** The Guide tab: on by default on the TV, off on phones (shown only where there's a guide). */
+    var guideTab by mutableStateOf(prefs.getBoolean(GUIDE_TAB_KEY, tv))
+        private set
+
+    fun changeGuideTab(value: Boolean) { guideTab = value; prefs.edit().putBoolean(GUIDE_TAB_KEY, value).apply() }
+
+    /** The Films and Séries tabs, when the account has some. */
+    var moviesTab by mutableStateOf(prefs.getBoolean(MOVIES_TAB_KEY, true))
+        private set
+    var seriesTab by mutableStateOf(prefs.getBoolean(SERIES_TAB_KEY, true))
+        private set
+
+    fun changeMoviesTab(value: Boolean) { moviesTab = value; prefs.edit().putBoolean(MOVIES_TAB_KEY, value).apply() }
+    fun changeSeriesTab(value: Boolean) { seriesTab = value; prefs.edit().putBoolean(SERIES_TAB_KEY, value).apply() }
+
+    fun changeSubtitles(value: Boolean) { if (value != subtitles) { subtitles = value; prefs.edit().putBoolean(SUBTITLES_KEY, value).apply() } }
+
+    /** The free channels of one country ("FR", "US", "UK") or of all ("all").
+     *  Nothing saved, or the first version's "mine": the device's country. */
+    var freeCountry by mutableStateOf(when (val saved = prefs.getString(GuideOptions.FREE_COUNTRIES_KEY, null)) {
+        "all" -> FreeChannels.ALL
+        in FreeChannels.choices -> saved!!
+        else -> FreeChannels.deviceCountry
+    })
+        private set
 
     /** Direct on phones: rows, or tiles as on the TV ("list" / "cards", the iOS key). */
     var liveCards by mutableStateOf(prefs.getString(LIVE_LAYOUT_KEY, "list") == "cards")
         private set
 
-    /** "light", "dark" or "system", the iOS key and values. */
-    var appearance by mutableStateOf(prefs.getString(APPEARANCE_KEY, null) ?: "system")
+    /** "light", "dark" or "system", the iOS key and values; dark unless
+     *  changed, as on iOS. */
+    var appearance by mutableStateOf(prefs.getString(APPEARANCE_KEY, null) ?: "dark")
         private set
+
+    /** Who resolves server names: the network's, unless one of the public resolvers is picked. */
+    var dns by mutableStateOf(DnsProvider.of(prefs.getString(DnsProvider.STORAGE_KEY, null)))
+        private set
+
+    fun changeDns(value: DnsProvider) { dns = value; Net.use(value); prefs.edit().putString(DnsProvider.STORAGE_KEY, value.raw).apply() }
 
     fun changeAppearance(value: String) { appearance = value; prefs.edit().putString(APPEARANCE_KEY, value).apply() }
 
@@ -63,7 +99,12 @@ class Settings(context: Context) {
 
     fun changeLiveCards(value: Boolean) { liveCards = value; prefs.edit().putString(LIVE_LAYOUT_KEY, if (value) "cards" else "list").apply() }
 
-    val guideOptions: GuideOptions get() = GuideOptions(showsShifted, numbering, prefersFree)
+    val guideOptions: GuideOptions get() = GuideOptions(showsShifted, numbering, prefersFree, freeCountry)
+
+    fun changeFreeCountry(value: String) {
+        freeCountry = value
+        prefs.edit().putString(GuideOptions.FREE_COUNTRIES_KEY, if (value == FreeChannels.ALL) "all" else value).apply()
+    }
 
     fun changePrefersFree(value: Boolean) { prefersFree = value; prefs.edit().putBoolean(GuideOptions.PREFERS_FREE_KEY, value).apply() }
 
@@ -94,6 +135,10 @@ class Settings(context: Context) {
         const val SHARED_FAVORITES_KEY = "favorites.keep"
         const val LIVE_LAYOUT_KEY = "live.layout"
         const val APPEARANCE_KEY = "appAppearance"
+        const val SUBTITLES_KEY = "player.subtitles"
+        const val GUIDE_TAB_KEY = "guide.tab"
+        const val MOVIES_TAB_KEY = "tabs.movies"
+        const val SERIES_TAB_KEY = "tabs.series"
     }
 }
 
@@ -102,13 +147,20 @@ class Settings(context: Context) {
 @Serializable
 data class Account(val id: String = UUID.randomUUID().toString().uppercase(), val name: String, val credentials: Credentials) {
     val host: String get() = runCatching { java.net.URL(credentials.baseURL).host }.getOrNull() ?: credentials.server
-    val title: String get() = name.nonEmpty ?: if (credentials.source == SourceKind.FREE) "Chaînes gratuites" else host
+    /** The free channels' account is saved under its French name: shown in the device's language. */
+    val title: String
+        get() = if (credentials.source == SourceKind.FREE && (name.isBlank() || name == FREE_NAME)) tr(FREE_NAME, "Free channels")
+            else name.nonEmpty ?: host
 
     /** What it is, under its name: the login, or the kind of list. */
     val subtitle: String get() = when (credentials.source) {
         SourceKind.XTREAM -> "${credentials.username} · $host"
-        SourceKind.PLAYLIST -> "Liste M3U · $host"
-        SourceKind.FREE -> "TNT, info et Pluto TV, sans abonnement"
+        SourceKind.PLAYLIST -> tr("Liste M3U · $host", "M3U playlist · $host")
+        SourceKind.FREE -> tr("TNT, info et Pluto TV, sans abonnement", "Free TV and news, no subscription")
+    }
+
+    companion object {
+        const val FREE_NAME = "Chaînes gratuites"
     }
 }
 
@@ -134,7 +186,7 @@ class AccountStore(context: Context) {
     /** The free channels, added once: nothing to check. */
     fun addFree() {
         accounts.firstOrNull { it.credentials.source == SourceKind.FREE }?.let { select(it.id); return }
-        val account = Account(name = "Chaînes gratuites", credentials = Credentials.free)
+        val account = Account(name = Account.FREE_NAME, credentials = Credentials.free)
         accounts = accounts + account
         save()
         select(account.id)
@@ -284,6 +336,13 @@ class Library(context: Context) {
 
     fun resumePosition(key: String): Double? = progress[key]?.takeIf { it.isResumable }?.position
 
+    /** Forgets what was watched: recent channels and where each film stopped. */
+    fun clearHistory() {
+        progress = emptyMap()
+        recentChannels = emptyList()
+        prefs.edit().remove(progressKey).remove(recentKey).apply()
+    }
+
     // Live
 
     fun played(group: ChannelGroup) {
@@ -319,6 +378,63 @@ class Library(context: Context) {
 
     companion object {
         fun key(kind: MediaKind, id: Any) = "${kind.raw}:$id"
+    }
+}
+
+/** The categories as the user arranged them, per account and section
+ *  (live, films, series): an order, and those hidden from the bar. Ids the
+ *  provider adds later follow the saved ones, in the provider's order. */
+class CategoryLayouts(context: Context) {
+    @Serializable
+    data class Layout(val order: List<String> = emptyList(), val hidden: Set<String> = emptySet()) {
+        val isEmpty: Boolean get() = order.isEmpty() && hidden.isEmpty()
+    }
+
+    private val prefs = context.getSharedPreferences("categories", Context.MODE_PRIVATE)
+    /** Read once each. Not state itself, as it's filled while screens
+     *  compose: `version` is what they observe, bumped by each edit. */
+    private val layouts = HashMap<String, Layout>()
+    private var version by androidx.compose.runtime.mutableIntStateOf(0)
+
+    private fun key(account: String?, kind: MediaKind) = "${account ?: ""}|${kind.raw}"
+
+    fun layout(account: String?, kind: MediaKind): Layout {
+        version
+        return layouts.getOrPut(key(account, kind)) {
+            prefs.getString(key(account, kind), null)?.let { runCatching { storeJson.decodeFromString(Layout.serializer(), it) }.getOrNull() } ?: Layout()
+        }
+    }
+
+    /** Every category, hidden ones too, in the user's order. */
+    fun ordered(categories: List<Category>, account: String?, kind: MediaKind): List<Category> {
+        val layout = layout(account, kind)
+        if (layout.order.isEmpty()) return categories
+        val byID = categories.associateBy { it.id }
+        val saved = layout.order.mapNotNull { byID[it] }
+        val known = layout.order.toHashSet()
+        return saved + categories.filter { it.id !in known }
+    }
+
+    /** The categories the bar shows. */
+    fun visible(categories: List<Category>, account: String?, kind: MediaKind): List<Category> {
+        val hidden = layout(account, kind).hidden
+        return ordered(categories, account, kind).let { list -> if (hidden.isEmpty()) list else list.filter { it.id !in hidden } }
+    }
+
+    fun save(account: String?, kind: MediaKind, layout: Layout) {
+        val key = key(account, kind)
+        layouts[key] = layout
+        version++
+        if (layout.isEmpty) prefs.edit().remove(key).apply()
+        else prefs.edit().putString(key, storeJson.encodeToString(Layout.serializer(), layout)).apply()
+    }
+
+    /** The provider's order, everything shown. */
+    fun reset(account: String?, kind: MediaKind) = save(account, kind, Layout())
+
+    fun forget(account: String) {
+        MediaKind.entries.forEach { kind -> layouts.remove(key(account, kind)); prefs.edit().remove(key(account, kind)).apply() }
+        version++
     }
 }
 
@@ -378,12 +494,15 @@ class Catalog(private val context: Context, private val scope: CoroutineScope) {
         }
     }
 
-    private fun guideKey(account: String, options: GuideOptions) = "$account|${options.showsShifted}|${options.numbering.raw}|${options.prefersFree}|${freeChannels.size}|2"
+    private fun guideKey(account: String, options: GuideOptions) =
+        "$account|${options.showsShifted}|${options.numbering.raw}|${options.prefersFree}|${freeChannels.size}|${options.freeCountry}|${FreeChannels.deviceCountry}|4"
 
     /** The free channels' streams, for a subscription's channels that have
      *  one; none for the free channels' own account. */
     private var freeChannels: List<LiveChannel> = emptyList()
     private var usesFreeChannels = false
+    /** The free channels' own account: its countries are filtered when shown. */
+    private var isFreeAccount = false
 
     private val liveSerializer = CatalogSection.serializer(LiveChannel.serializer())
     private val movieSerializer = CatalogSection.serializer(Movie.serializer())
@@ -394,6 +513,7 @@ class Catalog(private val context: Context, private val scope: CoroutineScope) {
         if (loadedAccount == account) return
         loadedAccount = account
         usesFreeChannels = client.credentials.source != SourceKind.FREE
+        isFreeAccount = !usesFreeChannels
         if (usesFreeChannels && freeChannels.isEmpty()) scope.launch {
             freeChannels = FreeChannels.listed(context)
             if (usesFreeChannels && options.prefersFree && freeChannels.isNotEmpty()) apply(snapshot)
@@ -481,7 +601,7 @@ class Catalog(private val context: Context, private val scope: CoroutineScope) {
                 if (!failed) snapshot = snapshot.copy(isPartial = null)
                 publish(save = true)
             } else {
-                val message = runCatching { client.account(); "Le serveur a répondu 520." }.getOrElse { it.readableMessage }
+                val message = runCatching { client.account(); tr("Le serveur a répondu 520.", "The server responded with error 520.") }.getOrElse { it.readableMessage }
                 if (isEmpty && account == loadedAccount) error = message
             }
         } finally {
@@ -507,13 +627,14 @@ class Catalog(private val context: Context, private val scope: CoroutineScope) {
         this.snapshot = snapshot
         options = optionsProvider()
         val options = options
-        live = snapshot.live
+        // The free channels' countries as the setting has them; everything stays fetched.
+        live = if (isFreeAccount) arrangedFree(snapshot.live, options.freeCountry) else snapshot.live
         movies = snapshot.movies
         series = snapshot.series
         updated = snapshot.date.takeIf { it > 0 }
         // Only the channels need building, and only when they changed: on a
         // Fire TV, building them again for each list that came ran it out of memory.
-        val section = snapshot.live
+        val section = live
         val free = if (usesFreeChannels && options.prefersFree) freeChannels else emptyList()
         if (section === indexedLive && options == indexedOptions && free === indexedFree) return
         indexedLive = section
@@ -534,6 +655,14 @@ class Catalog(private val context: Context, private val scope: CoroutineScope) {
         }
     }
 
+    /** Kept while nothing changes, so the guide isn't built again for nothing. */
+    private fun arrangedFree(section: CatalogSection<LiveChannel>, choice: String): CatalogSection<LiveChannel> {
+        val key = "$choice|${FreeChannels.deviceCountry}"
+        arranged?.let { (from, k, result) -> if (from === section && k == key) return result }
+        return FreeChannels.arranged(section, choice).also { arranged = Triple(section, key, it) }
+    }
+
+    private var arranged: Triple<CatalogSection<LiveChannel>, String, CatalogSection<LiveChannel>>? = null
     private var indexedLive: CatalogSection<LiveChannel>? = null
     private var indexedOptions: GuideOptions? = null
     private var indexedFree: List<LiveChannel>? = null
@@ -570,7 +699,10 @@ class Catalog(private val context: Context, private val scope: CoroutineScope) {
 
     companion object {
         private const val MAX_AGE = 6 * 3600 * 1000L
-        fun accountKey(credentials: Credentials) = credentials.baseURL + "|" + credentials.username
+        /** The free channels' catalog saved before categories had countries
+         *  would show nothing outside France until refreshed: theirs has a key of its own. */
+        fun accountKey(credentials: Credentials) = credentials.baseURL + "|" + credentials.username +
+            if (credentials.source == SourceKind.FREE) "|countries" else ""
     }
 }
 
@@ -606,7 +738,16 @@ class EPG {
     private val inFlight = mutableSetOf<Int>()
     private val gate = Semaphore(4)
     /** Channel key → programmes from the open guide (XML TV Fr). */
-    private var open: Map<String, List<Programme>> = emptyMap()
+    private var open by mutableStateOf<Map<String, List<Programme>>>(emptyMap())
+
+    /** Whether the guide can show programmes for the channel: the open
+     *  guide (the French TNT) or Pluto TV's own. Panels' come with the panel. */
+    fun covers(group: ChannelGroup): Boolean =
+        open[group.id]?.isNotEmpty() == true || group.streams.any { it.channel.url?.startsWith("pluto:") == true }
+
+    /** Whether a guide has anything to show: always with a panel, else
+     *  when one channel at least is covered. Follows the open guide's arrival. */
+    fun available(groups: List<ChannelGroup>, panel: Boolean): Boolean = panel || groups.any { covers(it) }
 
     fun now(channelID: Int): Programme? = nowSeconds().let { t -> cache[channelID]?.programmes?.firstOrNull { it.start <= t && it.end > t } }
     fun next(channelID: Int): Programme? = nowSeconds().let { t -> cache[channelID]?.programmes?.firstOrNull { it.start > t } }
@@ -619,6 +760,9 @@ class EPG {
     }
 
     fun now(group: ChannelGroup) = now(source(group))
+
+    /** Whether the guide was asked and had nothing. */
+    fun isEmpty(channelID: Int): Boolean = cache[channelID]?.programmes?.isEmpty() == true
 
     fun useOpenGuide(guide: Map<String, List<Programme>>, groups: List<ChannelGroup>) {
         if (guide.isNotEmpty()) open = guide
@@ -669,21 +813,37 @@ class EPG {
 }
 
 /** Everything the screens share. */
-class AppState(context: Context) {
+class AppState(context: Context, tv: Boolean = false) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    val settings = Settings(context)
+    val settings = Settings(context, tv)
     val accounts = AccountStore(context)
     val library = Library(context)
     val catalog = Catalog(context, scope)
+    val categoryLayouts = CategoryLayouts(context)
     val epg = EPG()
 
     init {
         FrenchChannels.load(context)
         PlaylistStore.init(context)
+        Net.use(settings.dns)
         catalog.optionsProvider = { settings.guideOptions }
         library.use(accounts.activeID, settings.sharesFavorites)
         scope.launch { epg.restore(epgFile) }
     }
 
     val epgFile = File(context.cacheDir, "epg.json")
+
+    /** The account has a guide at all: a panel, or channels the open guide or Pluto TV cover. */
+    val hasGuide: Boolean get() = epg.available(catalog.guide.groups, accounts.active?.credentials?.source == SourceKind.XTREAM)
+
+    /** The Guide tab shows: turned on, and something to put in it. */
+    val showsGuideTab: Boolean get() = settings.guideTab && hasGuide
+
+    /** Films and series: a panel always has the sections; a playlist only when
+     *  it lists some (the free channels have none). */
+    private val isPanel: Boolean get() = accounts.active?.credentials?.source == SourceKind.XTREAM
+    val hasMovies: Boolean get() = isPanel || !catalog.movies.isEmpty
+    val hasSeries: Boolean get() = isPanel || !catalog.series.isEmpty
+    val showsMoviesTab: Boolean get() = settings.moviesTab && hasMovies
+    val showsSeriesTab: Boolean get() = settings.seriesTab && hasSeries
 }

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>fr</string>
+	<string>en</string>
 	<key>CFBundleDisplayName</key>
 	<string>Flux</string>
 	<key>CFBundleExecutable</key>
@@ -24,17 +24,17 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_fluxpair._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Pour envoyer ton compte entre ton iPhone et ton Apple TV.</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

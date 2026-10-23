@@ -1,4 +1,4 @@
-package com.fares.flux.tv.ui
+package com.fares.flux.core
 
 import android.graphics.Bitmap
 import android.os.Handler
@@ -20,6 +20,15 @@ import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -41,11 +50,13 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 
-/** The picture under the controls, blurred: a video plays on a surface of
- *  its own that nothing drawn over it can blur, and Fire OS has no blur of
- *  its own before Android 12. So, as TV launchers do, the frame is copied
- *  small a few times a second, blurred there, and drawn back enlarged. */
-class VideoBackdrop {
+/** What's under a glass, blurred, on any Android: a video plays on a
+ *  surface of its own that nothing drawn over it can blur, and Android has
+ *  no blur of its own before 12. So, as TV launchers do, what's behind is
+ *  copied small a few times a second, blurred there, and drawn back
+ *  enlarged: the picture (`rememberVideoBackdrop`) or the screen's content
+ *  (`rememberContentBackdrop`). */
+class Backdrop {
     /** The blurred frame, and where the picture sits on screen. */
     var frame by mutableStateOf<ImageBitmap?>(null)
         private set
@@ -77,8 +88,8 @@ class VideoBackdrop {
 /** Keeps `backdrop` filled while `active`, from the player's surface. */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-fun rememberVideoBackdrop(view: PlayerView?, active: Boolean): VideoBackdrop {
-    val backdrop = remember { VideoBackdrop() }
+fun rememberVideoBackdrop(view: PlayerView?, active: Boolean): Backdrop {
+    val backdrop = remember { Backdrop() }
     LaunchedEffect(view, active) {
         // Nothing on screen (zapping, loading): the glass goes dark with it.
         if (!active) backdrop.clear()
@@ -129,53 +140,126 @@ fun rememberVideoBackdrop(view: PlayerView?, active: Boolean): VideoBackdrop {
  *  picture, a highlight across the top, a glow inside and a bright rim.
  *  Without a frame (zapping, loading, a protected stream), dark like the
  *  black picture behind. */
-fun Modifier.videoGlass(backdrop: VideoBackdrop, shape: Shape): Modifier {
+fun Modifier.videoGlass(backdrop: Backdrop, shape: Shape, tint: Color? = null): Modifier {
     var area = Rect.Zero
     return this
         .onGloballyPositioned { area = it.boundsInWindow() }
         .drawWithCache {
             val path = Path().apply { addOutline(shape.createOutline(size, layoutDirection, this@drawWithCache)) }
-            val rim = Brush.linearGradient(
-                0f to Color.White.copy(alpha = 0.6f), 0.35f to Color.White.copy(alpha = 0.10f),
-                0.7f to Color.White.copy(alpha = 0.06f), 1f to Color.White.copy(alpha = 0.3f),
-                start = Offset.Zero, end = Offset(size.width, size.height),
-            )
-            val specular = Brush.verticalGradient(0f to Color.White.copy(alpha = 0.14f), 0.4f to Color.White.copy(alpha = 0.03f), 1f to Color.Transparent)
-            val innerGlow = Brush.radialGradient(
-                listOf(Color.Transparent, Color.White.copy(alpha = 0.05f)),
-                center = Offset(size.width / 2, size.height / 2), radius = maxOf(size.width, size.height) * 0.75f,
-            )
-            val rimWidth = 1.2.dp.toPx()
             onDrawBehind {
                 clipPath(path) {
-                    val frame = backdrop.frame
-                    backdrop.version
-                    val picture = backdrop.bounds
-                    if (frame != null && picture.width > 0f && area.width > 0f) {
-                        // The part of the picture under the glass, in the small frame's pixels.
-                        val sx = frame.width / picture.width
-                        val sy = frame.height / picture.height
-                        val left = ((area.left - picture.left) * sx).roundToInt().coerceIn(0, frame.width - 1)
-                        val top = ((area.top - picture.top) * sy).roundToInt().coerceIn(0, frame.height - 1)
-                        val right = ((area.right - picture.left) * sx).roundToInt().coerceIn(left + 1, frame.width)
-                        val bottom = ((area.bottom - picture.top) * sy).roundToInt().coerceIn(top + 1, frame.height)
-                        drawImage(frame, IntOffset(left, top), IntSize(right - left, bottom - top),
-                            dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()), filterQuality = FilterQuality.Low)
-                        drawRect(Color(0xFF0B0B12).copy(alpha = 0.42f))
+                    if (drawFrame(backdrop, area)) {
+                        drawRect(tint ?: Color(0xFF0B0B12).copy(alpha = 0.42f))
                     } else {
                         // Over a black picture, as the blurred black would look.
-                        drawRect(Color(0xF00B0B12))
+                        drawRect(tint?.copy(alpha = 1f) ?: Color(0xF00B0B12))
                     }
-                    drawRect(innerGlow)
-                    drawRect(specular)
                 }
-                drawPath(path, rim, style = Stroke(rimWidth))
             }
+        }
+        .then(if (tint == null) Modifier.glassSheen(shape) else Modifier)
+}
+
+/** What makes a pane read as glass, whatever's behind it, as on iOS: a
+ *  highlight across the top, a glow inside, and a rim catching the light
+ *  at the top left and bottom right. `strength` dims it all on light
+ *  screens, where white light shows less. */
+fun Modifier.glassSheen(shape: Shape, strength: Float = 1f): Modifier = drawWithCache {
+    val path = Path().apply { addOutline(shape.createOutline(size, layoutDirection, this@drawWithCache)) }
+    fun white(alpha: Float) = Color.White.copy(alpha = alpha * strength)
+    val rim = Brush.linearGradient(
+        0f to white(0.6f), 0.35f to white(0.10f), 0.7f to white(0.06f), 1f to white(0.3f),
+        start = Offset.Zero, end = Offset(size.width, size.height),
+    )
+    // The highlight's depth fixed, not a share of the height: a tall card
+    // gets the same sheen along its top as a button.
+    val specularDepth = minOf(size.height, 56.dp.toPx())
+    val specular = Brush.verticalGradient(0f to white(0.14f), 0.4f to white(0.03f), 1f to Color.Transparent, endY = specularDepth)
+    val innerGlow = Brush.radialGradient(
+        listOf(Color.Transparent, white(0.05f)),
+        center = Offset(size.width / 2, size.height / 2), radius = maxOf(size.width, size.height) * 0.75f,
+    )
+    val rimWidth = 1.2.dp.toPx()
+    onDrawBehind {
+        clipPath(path) {
+            drawRect(innerGlow)
+            drawRect(specular)
+        }
+        drawPath(path, rim, style = Stroke(rimWidth))
+    }
+}
+
+/** What's under the glass, blurred, with `tint` over it; `empty` alone
+ *  while there's no frame yet. The glass's own rim and sheen are its own. */
+fun Modifier.backdropGlass(backdrop: Backdrop, tint: Color, empty: Color): Modifier {
+    var area = Rect.Zero
+    return this
+        .onGloballyPositioned { area = it.boundsInWindow() }
+        .drawBehind {
+            if (drawFrame(backdrop, area)) drawRect(tint) else drawRect(empty)
         }
 }
 
+/** The part of the frame under `area` (in the window), stretched over the
+ *  glass; false when there's none to draw. */
+private fun DrawScope.drawFrame(backdrop: Backdrop, area: Rect): Boolean {
+    val frame = backdrop.frame
+    backdrop.version
+    val picture = backdrop.bounds
+    if (frame == null || picture.width <= 0f || area.width <= 0f) return false
+    // The part of the picture under the glass, in the small frame's pixels.
+    val sx = frame.width / picture.width
+    val sy = frame.height / picture.height
+    val left = ((area.left - picture.left) * sx).roundToInt().coerceIn(0, frame.width - 1)
+    val top = ((area.top - picture.top) * sy).roundToInt().coerceIn(0, frame.height - 1)
+    val right = ((area.right - picture.left) * sx).roundToInt().coerceIn(left + 1, frame.width)
+    val bottom = ((area.bottom - picture.top) * sy).roundToInt().coerceIn(top + 1, frame.height)
+    drawImage(frame, IntOffset(left, top), IntSize(right - left, bottom - top),
+        dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()), filterQuality = FilterQuality.Low)
+    return true
+}
+
+/** The screen's content as `layer` records it (`bounds`, in the window),
+ *  kept in `backdrop` while `active`: drawn small into a second layer, read back and blurred. For
+ *  the Android versions whose own blur Haze doesn't use. */
+@Composable
+fun rememberContentBackdrop(layer: GraphicsLayer, active: Boolean, bounds: () -> Rect): Backdrop {
+    val backdrop = remember { Backdrop() }
+    val small = rememberGraphicsLayer()
+    val density = LocalDensity.current
+    val direction = LocalLayoutDirection.current
+    LaunchedEffect(layer, active) {
+        if (!active) { backdrop.clear(); return@LaunchedEffect }
+        var pixels = IntArray(0)
+        while (isActive) {
+            val full = layer.size
+            if (full.width > 0 && full.height > 0) {
+                // 120 pixels across: a blur hides the rest anyway.
+                val w = 120
+                val h = maxOf(1, w * full.height / full.width)
+                val copied = runCatching {
+                    small.record(density, direction, IntSize(w, h)) {
+                        scale(w.toFloat() / full.width, h.toFloat() / full.height, pivot = Offset.Zero) { drawLayer(layer) }
+                    }
+                    val shot = small.toImageBitmap().asAndroidBitmap()
+                    // Read back from the GPU's copy, small, when it gives one.
+                    val readable = if (android.os.Build.VERSION.SDK_INT >= 26 && shot.config == Bitmap.Config.HARDWARE) shot.copy(Bitmap.Config.ARGB_8888, false) else shot
+                    if (pixels.size != w * h) pixels = IntArray(w * h)
+                    readable.getPixels(pixels, 0, w, 0, 0, minOf(w, readable.width), minOf(h, readable.height))
+                }.isSuccess
+                if (copied) {
+                    withContext(Dispatchers.Default) { blur(pixels, w, h, radius = 3) }
+                    backdrop.publish(pixels, w, h, bounds())
+                }
+            }
+            delay(70)
+        }
+    }
+    return backdrop
+}
+
 /** Three box blurs one after the other, close to a Gaussian, in place. */
-private fun blur(pixels: IntArray, w: Int, h: Int, radius: Int) {
+internal fun blur(pixels: IntArray, w: Int, h: Int, radius: Int) {
     val tmp = IntArray(pixels.size)
     repeat(3) {
         boxPass(pixels, tmp, w, h, radius, horizontal = true)

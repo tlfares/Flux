@@ -54,6 +54,7 @@ import com.fares.flux.core.ChannelGroup
 import com.fares.flux.core.Favorite
 import com.fares.flux.core.MediaKind
 import com.fares.flux.core.Programme
+import com.fares.flux.core.tr
 import kotlinx.coroutines.launch
 
 /** The home screen, live TV alone: the channel last watched up top, then
@@ -63,7 +64,7 @@ fun HomeScreen() {
     val app = LocalApp.current
     val player = LocalTVPlayer.current
     val guide = app.catalog.guide
-    if (guide.isEmpty) { CatalogState("Aucune chaîne"); return }
+    if (guide.isEmpty) { CatalogState(tr("Aucune chaîne", "No channels")); return }
     val recent = app.library.recentChannels.mapNotNull { guide.group(it) }
     val favorites = app.library.favorites(MediaKind.LIVE).mapNotNull { guide.group(it.key) }
     val numbered = guide.groups.filter { it.number != null }
@@ -72,9 +73,9 @@ fun HomeScreen() {
     fun watch(group: ChannelGroup) { app.accounts.client?.let { player.watch(group, guide.groups, it) } }
 
     val shelves = buildList {
-        if (recent.size > 1) add("Reprendre" to recent.drop(1))
-        if (favorites.isNotEmpty()) add("Mes chaînes" to favorites)
-        if (tnt.isNotEmpty()) add("En ce moment à la TV" to tnt)
+        if (recent.size > 1) add(tr("Reprendre", "Continue watching") to recent.drop(1))
+        if (favorites.isNotEmpty()) add(tr("Mes chaînes", "My channels") to favorites)
+        if (tnt.isNotEmpty()) add(tr("En ce moment à la TV", "On TV now") to tnt)
     }
     val firstState = rememberLazyListState()
     val firstCard = remember { FocusRequester() }
@@ -132,7 +133,7 @@ private fun Hero(group: ChannelGroup, modifier: Modifier, onClick: () -> Unit) {
             Row(Modifier.fillMaxSize().padding(30.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     if (now?.image != null) ChannelLogo(group, 80.dp, 45.dp)
-                    Text(if (app.library.recentChannels.firstOrNull() == group.id) "REPRENDRE EN DIRECT" else "EN DIRECT",
+                    Text(if (app.library.recentChannels.firstOrNull() == group.id) tr("REPRENDRE EN DIRECT", "BACK TO LIVE") else tr("EN DIRECT", "LIVE"),
                         color = FluxBlue, fontSize = 12.sp, fontWeight = FontWeight.Black)
                     Text(now?.title ?: group.name, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (now != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -140,7 +141,7 @@ private fun Hero(group: ChannelGroup, modifier: Modifier, onClick: () -> Unit) {
                         LiveProgress(now, Modifier.width(180.dp))
                     }
                     now?.summary?.let { Text(it, color = Secondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-                    next?.let { Text("À suivre · ${Programme.clock(it.start)}  ${it.title}", color = Tertiary, fontSize = 13.sp, maxLines = 1) }
+                    next?.let { Text(tr("À suivre · ${Programme.clock(it.start)}  ${it.title}", "Up next · ${Programme.clock(it.start)}  ${it.title}"), color = Tertiary, fontSize = 13.sp, maxLines = 1) }
                 }
                 if (now?.image == null) {
                     Spacer(Modifier.width(30.dp))
@@ -157,13 +158,13 @@ fun ChannelsScreen() {
     val app = LocalApp.current
     val player = LocalTVPlayer.current
     var selection by rememberSaveable { mutableStateOf(Categories.ALL) }
-    if (app.catalog.guide.isEmpty) { CatalogState("Aucune chaîne"); return }
+    if (app.catalog.guide.isEmpty) { CatalogState(tr("Aucune chaîne", "No channels")); return }
     val channels = app.channels(selection)
     Row(Modifier.fillMaxSize().padding(start = 20.dp), horizontalArrangement = Arrangement.spacedBy(15.dp)) {
-        CategoryColumn(Categories.entries(app.catalog.live.categories, recent = true), selection) { selection = it }
+        CategoryColumn(MediaKind.LIVE, app.catalog.live.categories, recent = true, selection, { app.catalog.guide.count(it) }) { selection = it }
         if (channels.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(if (selection == Categories.FAVORITES) "Aucun favori. Maintiens le clic sur une chaîne pour l’ajouter." else "Rien ici", color = Secondary)
+                Text(if (selection == Categories.FAVORITES) tr("Aucun favori. Maintiens le clic sur une chaîne pour l’ajouter.", "No favorites yet. Press and hold OK on a channel to add it.") else tr("Rien ici", "Nothing here"), color = Secondary)
             }
         } else {
             LazyVerticalGrid(GridCells.Adaptive(190.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 15.dp, bottom = 30.dp, end = 30.dp),
@@ -186,12 +187,12 @@ fun GuideScreen() {
     // Every channel each time, whatever Direct was left on.
     var selection by remember { mutableStateOf(Categories.ALL) }
     var picking by remember { mutableStateOf(false) }
-    if (app.catalog.guide.isEmpty) { CatalogState("Aucune chaîne"); return }
+    if (app.catalog.guide.isEmpty) { CatalogState(tr("Aucune chaîne", "No channels")); return }
     val now = rememberNow(60_000)
     val start = now - now % 1800
     val channels = app.channels(selection)
     val lineup = if (selection == Categories.RECENT) app.catalog.guide.groups else channels
-    val entries = Categories.entries(app.catalog.live.categories, recent = true)
+    val entries = Categories.entries(visibleCategories(MediaKind.LIVE, app.catalog.live.categories), recent = true)
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val channelWidth = 150.dp
@@ -200,7 +201,7 @@ fun GuideScreen() {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.padding(horizontal = 40.dp).padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FocusRow(onClick = { picking = true }, modifier = Modifier.width(channelWidth)) {
-                    Text(com.fares.flux.core.DisplayName.clean(entries.firstOrNull { it.first == selection }?.second ?: "Tout") + "  ▾",
+                    Text(com.fares.flux.core.DisplayName.clean(entries.firstOrNull { it.first == selection }?.second ?: tr("Tout", "All")) + "  ▾",
                         Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Box(Modifier.fillMaxWidth()) {
@@ -218,7 +219,7 @@ fun GuideScreen() {
             }
         }
     }
-    if (picking) ChoiceDialog("Catégorie", entries.map { it.first to com.fares.flux.core.DisplayName.clean(it.second) }, selection,
+    if (picking) ChoiceDialog(tr("Catégorie", "Category"), entries.map { it.first to com.fares.flux.core.DisplayName.clean(it.second) }, selection,
         onDismiss = { picking = false }) { selection = it; picking = false }
 }
 

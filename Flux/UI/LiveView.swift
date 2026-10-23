@@ -47,10 +47,10 @@ struct LiveView: View {
             // with it: pinned beside the list, the title slid under them.
             LazyVStack(spacing: 0) {
                 if !catalog.live.isEmpty {
-                    CategoryBar(categories: catalog.live.categories, selection: $selection, showsRecent: true, showsFavorites: style == .separate)
+                    CategoryBar(categories: catalog.live.categories, kind: .live, selection: $selection, showsRecent: true, showsFavorites: style == .separate)
                 }
                 if catalog.live.isEmpty {
-                    CatalogState(empty: "Aucune chaîne").containerRelativeFrame(.vertical)
+                    CatalogState(empty: String(localized: "Aucune chaîne")).containerRelativeFrame(.vertical)
                 } else if catalog.guide.isEmpty {
                     ProgressView().controlSize(.large).containerRelativeFrame(.vertical) { h, _ in h - CategoryBar.height }
                 } else if groups.isEmpty {
@@ -105,8 +105,8 @@ enum LiveLayout: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .list: "Liste"
-        case .cards: "Cartes"
+        case .list: String(localized: "Liste")
+        case .cards: String(localized: "Cartes")
         }
     }
 
@@ -397,7 +397,7 @@ struct QualityBadge: View {
                     Image(systemName: "clock.arrow.circlepath").foregroundStyle(.tint)
                 }
                 if best != .untagged || group.hasChoice {
-                    Text(best == .untagged ? "Auto" : best.label)
+                    Text(best == .untagged ? String(localized: "Auto") : best.label)
                 }
                 if group.variants.count > 1 {
                     Text("+\(group.variants.count - 1)").foregroundStyle(.tertiary)
@@ -432,10 +432,10 @@ private struct ChannelPreview: View {
                 }
             }
             if let now {
-                programme("Maintenant", now)
+                programme(String(localized: "Maintenant"), now)
             }
             if let next {
-                programme("Ensuite", next)
+                programme(String(localized: "Ensuite"), next)
             }
         }
         .padding(20)

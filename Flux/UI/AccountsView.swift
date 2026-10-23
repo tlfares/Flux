@@ -186,7 +186,7 @@ struct AccountEditView: View {
             .animation(Motion.snappy, value: error)
         }
         .scrollDismissesKeyboard(.interactively)
-        .navigationTitle(original == nil ? "Nouveau compte" : original!.title)
+        .navigationTitle(original == nil ? String(localized: "Nouveau compte") : original!.title)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { if let original { draft = AccountDraft(original) } }
         .sensoryFeedback(.error, trigger: error) { _, new in new != nil }

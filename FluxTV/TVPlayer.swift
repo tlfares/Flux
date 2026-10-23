@@ -28,11 +28,15 @@ final class TVPlayer {
     var showsLive = false
     var video: TVVideo?
     var library: Library?
+    /// The playing stream's subtitles, off unless asked for.
+    let subtitles = Subtitles()
 
     let player: AVPlayer = {
         let player = AVPlayer()
         // Left on for live too: off, the first stall freezes the picture.
         player.automaticallyWaitsToMinimizeStalling = true
+        // Subtitles are chosen by hand (`Subtitles`), not from the playlist's defaults.
+        player.appliesMediaSelectionCriteriaAutomatically = false
         return player
     }()
 
@@ -114,8 +118,19 @@ final class TVPlayer {
         if let next = group.variants(delay: delay).first(where: { !tried.contains($0.id) }) {
             tune(group, next)
         } else {
-            error = "Cette chaîne ne répond pas pour le moment."
+            error = String(localized: "Cette chaîne ne répond pas pour le moment.")
         }
+    }
+
+    /// Another of the channel's streams, picked by hand: kept for it from
+    /// now on, unless it's the one it'd get anyway.
+    func pick(_ variant: ChannelVariant) {
+        guard let group = channel, variant.id != self.variant?.id else { return }
+        let preference = QualityPreference(rawValue: UserDefaults.standard.string(forKey: QualityPreference.storageKey) ?? "") ?? .best
+        let byDefault = group.preferred(preference, remembered: nil).id == variant.id
+        library?.rememberQuality(byDefault ? nil : variant.quality.label, for: group)
+        tried = []
+        tune(group, variant)
     }
 
     func retry() {
@@ -176,6 +191,7 @@ final class TVPlayer {
         let item = AVPlayerItem(asset: AVURLAsset(url: url))
         if !isLive { item.preferredForwardBufferDuration = 20 }
         item.externalMetadata = metadata(title: title, subtitle: subtitle)
+        subtitles.load(item)
         statusObservation = item.observe(\.status) { [weak self] item, _ in
             guard item.status == .failed else { return }
             Task { @MainActor in
@@ -199,6 +215,7 @@ final class TVPlayer {
         statusObservation = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
+        subtitles.clear()
         isPaused = false
     }
 

@@ -161,7 +161,7 @@ nonisolated struct Playlist: Sendable {
         var categories: [String: [String]] = ["live": [], "movie": [], "series": []]
         var known: Set<String> = []
         func category(_ section: String, _ group: String?) -> String {
-            let name = group ?? "Sans catégorie"
+            let name = group ?? String(localized: "Sans catégorie")
             let id = section + "|" + name
             if known.insert(id).inserted { categories[section, default: []].append(name) }
             return id
@@ -195,7 +195,7 @@ nonisolated struct Playlist: Sendable {
                 let number = numbers?.episode ?? (playlist.episodes[seriesID]?[season]?.count ?? 0) + 1
                 let ext = (URL(string: entry.url)?.pathExtension).flatMap(\.nonEmpty) ?? "mp4"
                 let episode = Episode(id: String(uniqueID(entry.url)), number: number, season: season,
-                                      title: numbers?.rest.nonEmpty ?? "Épisode \(number)", container: ext, image: logo, url: entry.url)
+                                      title: numbers?.rest.nonEmpty ?? String(localized: "Épisode \(number)"), container: ext, image: logo, url: entry.url)
                 playlist.episodes[seriesID, default: [:]][season, default: []].append(episode)
             }
         }
@@ -217,8 +217,8 @@ nonisolated enum PlaylistError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .empty: "Cette liste ne contient aucune chaîne."
-        case .unreadable: "Ce lien ne donne pas une liste M3U."
+        case .empty: String(localized: "Cette liste ne contient aucune chaîne.")
+        case .unreadable: String(localized: "Ce lien ne donne pas une liste M3U.")
         }
     }
 }

@@ -43,6 +43,15 @@ final class EPG {
     /// stand in for the panel's on the channels it covers.
     private var open: [String: [Programme]] = [:]
 
+    /// Whether a guide has anything for these channels: a panel's own, or
+    /// the open guide's and Pluto TV's, the only ones a playlist gets. The
+    /// free American and British channels other than Pluto's have none.
+    func hasGuide(_ groups: [ChannelGroup], isPanel: Bool) -> Bool {
+        isPanel || groups.contains { group in
+            open[group.id] != nil || group.variants.contains { $0.channel.url?.hasPrefix("pluto:") == true }
+        }
+    }
+
     /// Takes the open guide, and fills in at once the channels it has,
     /// rows on screen included.
     func useOpenGuide(_ guide: [String: [Programme]], for groups: [ChannelGroup]) {

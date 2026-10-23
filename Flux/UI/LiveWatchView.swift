@@ -95,7 +95,7 @@ struct LiveWatchView: View {
     }
 
     private var categories: some View {
-        CategoryBar(categories: catalog.live.categories, selection: $selection, showsRecent: true, showsFavorites: style == .separate)
+        CategoryBar(categories: catalog.live.categories, kind: .live, selection: $selection, showsRecent: true, showsFavorites: style == .separate)
             .padding(.horizontal, -4)
     }
 
@@ -113,11 +113,14 @@ struct LiveWatchView: View {
             // A tap brings them up for a few seconds, as in full screen.
             if showsControls {
                 ZStack {
-                    VideoButton(systemImage: "chevron.down", label: "Fermer") { dismiss() }
+                    VideoButton(systemImage: "chevron.down", label: String(localized: "Fermer")) { dismiss() }
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    VideoButton(systemImage: "arrow.up.left.and.arrow.down.right", label: "Plein écran") { player.setLiveFullScreen(true) }
+                    VideoButton(systemImage: "arrow.up.left.and.arrow.down.right", label: String(localized: "Plein écran")) { player.setLiveFullScreen(true) }
                         .disabled(player.liveError != nil)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    SubtitlesButton(size: 40)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     if player.liveError == nil {
                         Button {
                             player.toggleLivePause()
@@ -223,7 +226,7 @@ private struct LiveFullScreen: View {
                 .allowsHitTesting(false)
             VStack {
                 HStack(alignment: .top, spacing: 12) {
-                    VideoButton(systemImage: "chevron.down", label: "Quitter le plein écran") { player.setLiveFullScreen(false) }
+                    VideoButton(systemImage: "chevron.down", label: String(localized: "Quitter le plein écran")) { player.setLiveFullScreen(false) }
                         .padding(-10)
                     if let group = player.liveGroup {
                         VStack(alignment: .leading, spacing: 2) {
@@ -236,6 +239,7 @@ private struct LiveFullScreen: View {
                         .padding(.top, 2)
                     }
                     Spacer()
+                    SubtitlesButton(size: 40)
                     AirPlayButton()
                         .frame(width: 40, height: 40)
                         .glassEffect(.regular.interactive(), in: .circle)
@@ -243,7 +247,7 @@ private struct LiveFullScreen: View {
                 Spacer()
                 HStack {
                     Spacer()
-                    VideoButton(systemImage: "arrow.down.right.and.arrow.up.left", label: "Quitter le plein écran") { player.setLiveFullScreen(false) }
+                    VideoButton(systemImage: "arrow.down.right.and.arrow.up.left", label: String(localized: "Quitter le plein écran")) { player.setLiveFullScreen(false) }
                         .padding(-10)
                 }
             }
@@ -311,6 +315,36 @@ private struct AirPlayButton: UIViewRepresentable {
     }
 
     func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+}
+
+/// The stream's subtitles, off or one of them: there only when it has some.
+private struct SubtitlesButton: View {
+    let size: CGFloat
+    @Environment(PlayerCenter.self) private var player
+
+    var body: some View {
+        let subtitles = player.subtitles
+        if !subtitles.options.isEmpty {
+            Menu {
+                Picker("Sous-titres", selection: Binding(get: { subtitles.selected }, set: { subtitles.choose($0) })) {
+                    Text("Désactivés").tag(AVMediaSelectionOption?.none)
+                    ForEach(subtitles.options, id: \.self) { option in
+                        Text(Subtitles.name(option)).tag(Optional(option))
+                    }
+                }
+            } label: {
+                Image(systemName: subtitles.selected == nil ? "captions.bubble" : "captions.bubble.fill")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: size, height: size)
+                    .contentShape(.circle)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Sous-titres")
+        }
+    }
 }
 
 /// A round glass button sitting on the picture, in a corner.

@@ -55,6 +55,7 @@ class Playlist(
             return (hash and 0x7FFFFFFF).toInt()
         }
 
+        private const val UNCATEGORIZED = "Sans catégorie"
         private val videoExtensions = setOf("mp4", "mkv", "avi", "mov", "m4v", "wmv", "flv", "webm", "mpg", "mpeg")
         private val episodePattern = Regex("""(?i)^(.*?)[\s._\-]*S(\d{1,2})[\s._\-]*E(\d{1,4})(.*)$""")
 
@@ -150,7 +151,8 @@ class Playlist(
             val names = mapOf("live" to ArrayList<String>(), "movie" to ArrayList(), "series" to ArrayList())
             val known = HashSet<String>()
             fun category(section: String, group: String?): String {
-                val name = group ?: "Sans catégorie"
+                // The id keeps the French name, so it stays the same whatever the language.
+                val name = group ?: UNCATEGORIZED
                 val id = "$section|$name"
                 if (known.add(id)) names.getValue(section).add(name)
                 return id
@@ -178,13 +180,15 @@ class Playlist(
                         val seasons = episodes.getOrPut(seriesID) { HashMap() }
                         val list = seasons.getOrPut(season) { ArrayList() }
                         val number = match?.groupValues?.get(3)?.toIntOrNull() ?: (list.size + 1)
-                        val title = match?.groupValues?.get(4)?.trim(' ', '.', '-', '_', '|')?.nonEmpty ?: "Épisode $number"
+                        val title = match?.groupValues?.get(4)?.trim(' ', '.', '-', '_', '|')?.nonEmpty ?: tr("Épisode $number", "Episode $number")
                         list.add(Episode(uniqueID(entry.url).toString(), number, season, title, extension(entry.url).ifEmpty { "mp4" },
                             logo, null, null, entry.url))
                     }
                 }
             }
-            fun list(section: String) = names.getValue(section).map { Category("$section|$it", it) }
+            fun list(section: String) = names.getValue(section).map {
+                Category("$section|$it", if (it == UNCATEGORIZED) tr(UNCATEGORIZED, "Uncategorized") else it)
+            }
             return Playlist(live, list("live"), movies, list("movie"), series, list("series"),
                 episodes.mapValues { (_, s) -> s.mapValues { (_, e) -> e.sortedBy { it.number } } })
         }
@@ -243,27 +247,21 @@ object PlaylistStore {
     private suspend fun download(credentials: Credentials): Playlist = withContext(Dispatchers.IO) {
         if (credentials.source == SourceKind.FREE) return@withContext FreeChannels.playlist(context)
         val url = runCatching { URL(credentials.baseURL) }.getOrNull()?.takeIf { !it.host.isNullOrEmpty() }
-            ?: throw XtreamException("L’adresse de la liste n’est pas valide.")
-        val connection = url.openConnection() as HttpURLConnection
-        connection.connectTimeout = 30_000
-        connection.readTimeout = 120_000
-        connection.instanceFollowRedirects = true
-        connection.setRequestProperty("User-Agent", XtreamClient.USER_AGENT)
+            ?: throw XtreamException(tr("L’adresse de la liste n’est pas valide.", "The playlist address isn’t valid."))
         val target = file(credentials.baseURL)
         val tmp = File(target.path + ".tmp")
-        try {
-            val code = connection.responseCode
-            if (code == 401 || code == 403) throw XtreamException("Accès refusé à cette liste.")
-            if (code !in 200..299) throw XtreamException("Le serveur a répondu $code.")
-            connection.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } }
-        } finally {
-            connection.disconnect()
+        Net.get(url.toString(), 30, 120, mapOf("User-Agent" to XtreamClient.USER_AGENT)).use { response ->
+            val code = response.code
+            if (code == 401 || code == 403) throw XtreamException(tr("Accès refusé à cette liste.", "Access to this playlist was denied."))
+            if (code !in 200..299) throw XtreamException(tr("Le serveur a répondu $code.", "The server responded with error $code."))
+            response.body!!.byteStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
         }
         val p = tmp.bufferedReader().use { Playlist.parse(it) }
         if (p.isEmpty) {
             val head = tmp.bufferedReader().use { r -> CharArray(64).let { String(it, 0, maxOf(0, r.read(it))) } }
             tmp.delete()
-            throw XtreamException(if ("#EXT" in head) "Cette liste ne contient aucune chaîne." else "Ce lien ne donne pas une liste M3U.")
+            throw XtreamException(if ("#EXT" in head) tr("Cette liste ne contient aucune chaîne.", "This playlist has no channels.")
+                else tr("Ce lien ne donne pas une liste M3U.", "This link doesn’t lead to an M3U playlist."))
         }
         tmp.renameTo(target)
         p
@@ -272,17 +270,74 @@ object PlaylistStore {
 
 /** The channels anyone can watch without a subscription, from the
  *  broadcasters' own players: the free TNT channels France TV, Arte, BFM,
- *  RMC and L'Équipe stream, news, the France 3 regions, then Pluto TV's
- *  French line-up. The list comes with the app (FreeChannels.json, the same
- *  file as on the Apple apps); streams whose address changes are looked up
- *  when they start (`StreamResolver`). */
+ *  RMC and L'Équipe stream, news, the France 3 regions, American and
+ *  British channels, then Pluto TV's line-up for where the device is. The
+ *  list comes with the app (FreeChannels.json, the same file as on the
+ *  Apple apps); streams whose address changes are looked up when they
+ *  start (`StreamResolver`). Each category is tagged with its country,
+ *  "|FR| Info", "|US| News", which the setting filters on. */
 object FreeChannels {
     /** The same file, hosted: streams that move are fixed there, without a
      *  new version of the app. Asked for at most every few hours; the copy
      *  that came with the app stands in until one arrives, and whenever it's
      *  older or unreadable. */
-    const val REMOTE = "https://gist.githubusercontent.com/tlfares/b08fcc5378a0b04d14d0f15dfea7cf77/raw/FreeChannels.json"
+    const val REMOTE = "https://gist.githubusercontent.com/tlfares/b08fcc5378a0b04d14d0f15dfea7cf77/raw/FreeChannels2.json"
     private const val REMOTE_MAX_AGE = 6 * 3600 * 1000L
+
+    /** The setting's choices: a country, or every one. */
+    val choices = listOf("FR", "US", "UK", ALL)
+    const val ALL = "ALL"
+
+    /** The country the setting starts on: France or the UK where the
+     *  device is set to them, the US everywhere else. */
+    val deviceCountry: String get() = when (Locale.getDefault().country.uppercase(Locale.ROOT)) {
+        "FR" -> "FR"
+        "GB", "UK" -> "UK"
+        else -> "US"
+    }
+
+    /** What the country setting does, under it. */
+    fun countriesNote(choice: String): String =
+        if (choice == ALL) tr("Les chaînes de tous les pays, celles de ton pays en premier.", "Channels from every country, yours first.")
+        else tr("Seulement les chaînes gratuites de ce pays.", "Only this country's free channels.")
+
+    /** "🇫🇷 France", "🇺🇸 US", "🇬🇧 UK", "🌍 Tous". */
+    fun choiceTitle(choice: String): String = when (choice) {
+        "FR" -> "France"
+        ALL -> tr("Tous", "All")
+        else -> choice
+    }
+
+    /** The mark over or before a choice's title: its flag, the globe for all. */
+    fun choiceFlag(choice: String): String = if (choice == ALL) "🌍" else flag(choice)
+
+    /** A category's country, from its tag: "|US| News" → US. */
+    fun country(category: Category): String = ChannelName.splitCountry(category.name).first
+
+    /** "🇺🇸" for US, "🇬🇧" for UK. */
+    fun flag(country: String): String {
+        val code = (if (country == "UK") "GB" else country).uppercase(Locale.ROOT)
+        if (code.length != 2 || !code.all { it in 'A'..'Z' }) return ""
+        return code.map { String(Character.toChars(0x1F1E6 + (it - 'A'))) }.joinToString("")
+    }
+
+    /** The live section as the setting has it: one country alone, or every
+     *  country, the device's first and each category flagged ("|US| 🇺🇸 News")
+     *  so they tell apart. Applied when shown, so the setting changes it
+     *  without fetching anything again. */
+    fun arranged(section: CatalogSection<LiveChannel>, choice: String): CatalogSection<LiveChannel> {
+        val home = deviceCountry
+        if (choice != ALL) {
+            val kept = section.categories.filter { country(it) == choice }
+            val ids = kept.mapTo(HashSet()) { it.id }
+            return CatalogSection.build(kept, section.items.filter { it.categoryID in ids }) { it.categoryID }
+        }
+        val ordered = section.categories.filter { country(it) == home } + section.categories.filter { country(it) != home }
+        return section.copy(categories = ordered.map { c ->
+            val (code, rest) = ChannelName.splitCountry(c.name)
+            if (code.isEmpty()) c else c.copy(name = "|$code| ${flag(code)} ${rest.trim()}")
+        })
+    }
 
     private class ListFile(val version: Int, val categories: List<Category>, val channels: List<LiveChannel>)
 
@@ -290,7 +345,7 @@ object FreeChannels {
     private fun read(text: String): ListFile? = runCatching {
         val root = XtreamClient.json.parseToJsonElement(text) as JsonObject
         val categories = (root["categories"] as JsonArray).mapNotNull { c ->
-            (c as? JsonObject)?.let { Category(it.str("id") ?: "", it.str("name") ?: "") }
+            (c as? JsonObject)?.let { tagged(it.str("id") ?: "", it.str("name") ?: "", it.str("country")?.uppercase(Locale.ROOT) ?: "FR") }
         }
         val channels = (root["channels"] as JsonArray).mapNotNull { c ->
             val o = c as? JsonObject ?: return@mapNotNull null
@@ -302,7 +357,8 @@ object FreeChannels {
 
     /** The hosted list when it's at least as recent as the bundled one. */
     private fun current(context: Context): ListFile? {
-        val cached = File(context.cacheDir, "free-channels.json")
+        // A file of its own: the first list's copy, older, would stand in for hours.
+        val cached = File(context.cacheDir, "free-channels-2.json")
         if (!cached.exists() || System.currentTimeMillis() - cached.lastModified() > REMOTE_MAX_AGE) {
             StreamResolver.get(REMOTE)?.takeIf { read(it) != null }?.let { text ->
                 val tmp = File(cached.path + ".tmp")
@@ -323,18 +379,28 @@ object FreeChannels {
         val listed = async(Dispatchers.IO) { current(context) }
         val pluto = async { runCatching { PlutoTV.lineup() }.getOrNull() }
         val file = listed.await()
-        val categories = ArrayList(file?.categories?.map(::french) ?: emptyList())
+        val categories = ArrayList(file?.categories ?: emptyList())
         val live = ArrayList(file?.channels ?: emptyList())
-        pluto.await()?.let { (c, l) ->
-            categories += c.map(::french)
-            live += l
+        pluto.await()?.let { lineup ->
+            categories += lineup.categories.map { Category(it.id, "|${lineup.region}| " + it.name) }
+            live += lineup.channels
         }
         Playlist(live, categories)
     }
 
-    /** Categories read as French: their channels are matched against the
-     *  French line-up (numbers, logos, the open guide). */
-    private fun french(category: Category) = Category(category.id, "|FR| " + category.name)
+    /** A category under its country's tag: French ones are matched against
+     *  the French line-up (numbers, logos, the open guide) and named in
+     *  English on a device that isn't French; American and British ones are
+     *  in English already. Ids stay as they are. */
+    private fun tagged(id: String, name: String, country: String) =
+        Category(id, "|$country| " + if (country == "FR") tr(name, englishNames[id] ?: name) else name)
+
+    /** The list's own categories, by id; any other keeps the list's name. */
+    private val englishNames = mapOf(
+        "info" to "News", "regions" to "France 3 Regions", "bfm" to "BFM Regions", "local" to "Local channels",
+        "sport" to "Sports", "music" to "Music", "fast" to "Movies & series", "outremer" to "Overseas France",
+        "jeunesse" to "Kids",
+    )
 }
 
 /** Turns the free channels' lookups into an address the player plays:
@@ -344,17 +410,10 @@ object StreamResolver {
     private const val BROWSER = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 
     internal fun get(url: String, headers: Map<String, String> = emptyMap()): String? {
-        val connection = runCatching { URL(url).openConnection() as HttpURLConnection }.getOrNull() ?: return null
-        connection.connectTimeout = 15_000
-        connection.readTimeout = 15_000
-        connection.setRequestProperty("User-Agent", BROWSER)
-        headers.forEach { (k, v) -> connection.setRequestProperty(k, v) }
         return try {
-            if (connection.responseCode != 200) null else connection.inputStream.bufferedReader().use { it.readText() }
+            Net.get(url, 15, 15, mapOf("User-Agent" to BROWSER) + headers).use { if (it.code != 200) null else it.body?.string() }
         } catch (e: Exception) {
             null
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -393,10 +452,14 @@ object StreamResolver {
     }
 }
 
-/** Pluto TV, free and supported by ads: its French channels, their guide,
- *  and a session to play them with, renewed when Pluto says so. */
+/** Pluto TV, free and supported by ads: the channels of the country it
+ *  sees the device in, their guide, and a session to play them with,
+ *  renewed when Pluto says so. */
 object PlutoTV {
-    private class Session(val token: String, val stitcher: String, val params: String, val expires: Long)
+    private class Session(val token: String, val stitcher: String, val params: String, val expires: Long, val region: String)
+
+    /** The channels, under the country they're for ("FR", "US", "UK"). */
+    class Lineup(val region: String, val categories: List<Category>, val channels: List<LiveChannel>)
 
     private var session: Session? = null
     private val lock = Mutex()
@@ -412,7 +475,9 @@ object PlutoTV {
         val stitcher = (boot["servers"] as? JsonObject)?.str("stitcher") ?: return null
         val params = boot.str("stitcherParams") ?: return null
         val refresh = boot.double("refreshInSec") ?: 3600.0
-        Session(token, stitcher, params, System.currentTimeMillis() + (minOf(refresh, 6 * 3600.0) - 60).toLong() * 1000).also { session = it }
+        // Pluto picks the line-up from where the request comes from: "GB" is the list's "UK".
+        val region = (boot["session"] as? JsonObject)?.str("activeRegion")?.uppercase(Locale.ROOT)?.let { if (it == "GB") "UK" else it } ?: "FR"
+        Session(token, stitcher, params, System.currentTimeMillis() + (minOf(refresh, 6 * 3600.0) - 60).toLong() * 1000, region).also { session = it }
     }
 
     private suspend fun get(path: String): JsonElement? {
@@ -423,9 +488,9 @@ object PlutoTV {
     }
 
     /** The channels, each in the first category Pluto lists it under. */
-    suspend fun lineup(): Pair<List<Category>, List<LiveChannel>> {
+    suspend fun lineup(): Lineup? {
         val channels = (get("/v2/guide/channels?channelIds=&offset=0&limit=1000&sort=number%3Aasc") as? JsonObject)?.get("data") as? JsonArray
-            ?: return emptyList<Category>() to emptyList()
+            ?: return null
         val groups = (get("/v2/guide/categories") as? JsonObject)?.get("data") as? JsonArray ?: JsonArray(emptyList())
         val categoryOf = HashMap<String, String>()
         val categories = ArrayList<Category>()
@@ -449,7 +514,8 @@ object PlutoTV {
             val category = categoryOf[id] ?: "pluto".also { usesFallback = true }
             LiveChannel(Playlist.stableID("pluto:$id"), name, icon = logo, categoryID = category, url = "pluto:$id")
         }
-        return (if (usesFallback) categories + Category("pluto", "Pluto TV") else categories) to list
+        val region = session?.region ?: "FR"
+        return Lineup(region, if (usesFallback) categories + Category("pluto", "Pluto TV") else categories, list)
     }
 
     suspend fun streamURL(channel: String): String? {

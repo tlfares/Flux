@@ -6,11 +6,16 @@ struct SettingsView: View {
     @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.dark.rawValue
     @Environment(Library.self) private var library
     @AppStorage("showsEPG") private var showsEPG = true
+    @AppStorage(GuideOptions.tabKey) private var showsGuideTab = false
+    @AppStorage(GuideOptions.moviesTabKey) private var showsMoviesTab = true
+    @AppStorage(GuideOptions.seriesTabKey) private var showsSeriesTab = true
+    @Environment(EPG.self) private var epg
     @AppStorage(QualityPreference.storageKey) private var quality = QualityPreference.best
     @AppStorage(FavoritesStyle.storageKey) private var favoritesStyle = FavoritesStyle.separate
     @AppStorage(FavoritesStyle.sharedKey) private var sharesFavorites = true
     @AppStorage(GuideOptions.shiftedKey) private var showsShifted = false
     @AppStorage(GuideOptions.prefersFreeKey) private var prefersFree = true
+    @AppStorage(FreeScope.storageKey) private var freeScope = FreeScope.detected
     @AppStorage(ChannelNumbering.storageKey) private var numbering = ChannelNumbering.default
     @AppStorage(LiveLayout.storageKey) private var liveLayout = LiveLayout.list
     // Which sections are open, kept between visits. State as in Screenloss:
@@ -21,21 +26,37 @@ struct SettingsView: View {
     @State private var dataOpen = UserDefaults.standard.bool(forKey: "settings.open.data")
     @State private var managesFavorites = false
     @State private var managesAccounts = false
+    @State private var confirmsClearing = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 accountCard
 
-                CollapsibleGlassCard(title: "Lecture", systemImage: "play.rectangle", isExpanded: $playbackOpen) {
+                CollapsibleGlassCard(title: LocalizedStringResource("settings.playback", defaultValue: "Lecture"), systemImage: "play.rectangle", isExpanded: $playbackOpen) {
                     VStack(alignment: .leading, spacing: 14) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Qualité par défaut").font(.subheadline).foregroundStyle(.secondary)
-                            GlassSegmentedPicker("Qualité par défaut", options: QualityPreference.allCases, selection: $quality,
-                                                 title: \.title, symbol: \.symbol)
-                            Text("Quand une chaîne existe en plusieurs qualités. Celle choisie à la main pour une chaîne reste la sienne.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                        // The free channels have one country's line-up to pick, and
+                        // none of a subscription's qualities.
+                        if account.credentials?.source == .free {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Chaînes gratuites").font(.subheadline).foregroundStyle(.secondary)
+                                GlassSegmentedPicker("Chaînes gratuites", options: FreeScope.allCases, selection: $freeScope,
+                                                     title: \.title, emoji: \.emoji, commitsWhenSettled: true)
+                                Text(freeScope == .all
+                                     ? "Les chaînes de tous les pays, celles de ton pays en premier."
+                                     : "Seulement les chaînes gratuites de ce pays.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Qualité par défaut").font(.subheadline).foregroundStyle(.secondary)
+                                GlassSegmentedPicker("Qualité par défaut", options: QualityPreference.allCases, selection: $quality,
+                                                     title: \.title, symbol: \.symbol)
+                                Text("Quand une chaîne existe en plusieurs qualités. Celle choisie à la main pour une chaîne reste la sienne.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         Divider()
                         HStack {
@@ -47,15 +68,18 @@ struct SettingsView: View {
                             .pickerStyle(.menu)
                             .buttonStyle(.glass)
                         }
-                        Text(numbering.subtitle + (numbering == .provider ? "" : " Les autres chaînes suivent."))
+                        Text(numbering.subtitle + (numbering == .provider ? "" : String(localized: " Les autres chaînes suivent.")))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                        Divider()
-                        Toggle("Chaînes en différé", isOn: $showsShifted)
-                            .font(.subheadline)
-                        Text("Les versions décalées (« TF1 +4 », diffusée 4 h plus tard) se choisissent depuis leur chaîne au lieu d’être masquées.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        // Shifted channels are a subscription's: the free ones have none.
+                        if account.credentials?.source != .free {
+                            Divider()
+                            Toggle("Chaînes en différé", isOn: $showsShifted)
+                                .font(.subheadline)
+                            Text("Les versions décalées (« TF1 +4 », diffusée 4 h plus tard) se choisissent depuis leur chaîne au lieu d’être masquées.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                         if account.credentials?.source != .free {
                             Divider()
                             Toggle("Flux gratuits en priorité", isOn: $prefersFree)
@@ -96,6 +120,26 @@ struct SettingsView: View {
                         Text("Affiche l’émission diffusée sous chaque chaîne, quand le fournisseur a un guide.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                        // Only when there's a guide to show.
+                        if epg.hasGuide(catalog.guide.groups, isPanel: account.client?.isPanel ?? true) {
+                            Divider()
+                            Toggle("Onglet Guide", isOn: $showsGuideTab)
+                                .font(.subheadline)
+                            Text("Les programmes de toutes les chaînes sur une grille.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        // Only for an account that has some: the free channels have none.
+                        if account.client?.isPanel == true || !catalog.movies.isEmpty {
+                            Divider()
+                            Toggle("Onglet Films", isOn: $showsMoviesTab)
+                                .font(.subheadline)
+                        }
+                        if account.client?.isPanel == true || !catalog.series.isEmpty {
+                            Divider()
+                            Toggle("Onglet Séries", isOn: $showsSeriesTab)
+                                .font(.subheadline)
+                        }
                     }
                 }
 
@@ -148,6 +192,21 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.glass)
                         .disabled(catalog.isLoading)
+                        Button(role: .destructive) {
+                            confirmsClearing = true
+                        } label: {
+                            Label("Effacer l’historique", systemImage: "clock.arrow.circlepath")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.glass)
+                        .disabled(library.progress.isEmpty && library.recentChannels.isEmpty)
+                        .confirmationDialog("Effacer l’historique ?", isPresented: $confirmsClearing, titleVisibility: .visible) {
+                            Button("Effacer", role: .destructive) { library.clearHistory() }
+                        } message: {
+                            Text("Les chaînes récentes et la reprise des films et épisodes seront oubliées.")
+                        }
                     }
                 }
 
@@ -192,7 +251,7 @@ struct SettingsView: View {
                     }
                     Spacer()
                     if let status = account.info?.status {
-                        Text(status == "Active" ? "Actif" : status)
+                        Text(status == "Active" ? String(localized: "Actif") : status)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(status == "Active" ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                             .padding(.horizontal, 11)
@@ -212,8 +271,8 @@ struct SettingsView: View {
                 if let info = account.info, account.client?.isPanel == true {
                     Divider()
                     HStack {
-                        figure(info.expiration.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "Illimité", "Expire")
-                        figure("\(info.activeConnections ?? 0) / \(info.maxConnections ?? 1)", "Connexions")
+                        figure(info.expiration.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? String(localized: "Illimité"), String(localized: "Expire"))
+                        figure("\(info.activeConnections ?? 0) / \(info.maxConnections ?? 1)", String(localized: "Connexions"))
                     }
                 }
             }
@@ -229,13 +288,13 @@ struct SettingsView: View {
     }
 
     private var catalogCounts: String {
-        "\((catalog.guide.isEmpty ? catalog.live.items.count : catalog.guide.groups.count).formatted()) chaînes · \(catalog.movies.items.count.formatted()) films · \(catalog.series.items.count.formatted()) séries"
+        String(localized: "\((catalog.guide.isEmpty ? catalog.live.items.count : catalog.guide.groups.count).formatted()) chaînes · \(catalog.movies.items.count.formatted()) films · \(catalog.series.items.count.formatted()) séries")
     }
 
     private var catalogSummary: String {
-        let counts = "\((catalog.guide.isEmpty ? catalog.live.items.count : catalog.guide.groups.count).formatted()) chaînes · \(catalog.movies.items.count.formatted()) films · \(catalog.series.items.count.formatted()) séries"
+        let counts = String(localized: "\((catalog.guide.isEmpty ? catalog.live.items.count : catalog.guide.groups.count).formatted()) chaînes · \(catalog.movies.items.count.formatted()) films · \(catalog.series.items.count.formatted()) séries")
         guard let updated = catalog.updated else { return counts }
-        return counts + "\nMis à jour " + updated.formatted(.relative(presentation: .named))
+        return counts + "\n" + String(localized: "Mis à jour \(updated.formatted(.relative(presentation: .named)))")
     }
 
     private static var versionText: String {

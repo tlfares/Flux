@@ -5,9 +5,9 @@ nonisolated enum XtreamError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .badServer: "L’adresse du serveur n’est pas valide."
-        case .unauthorized: "Identifiants refusés par le serveur."
-        case .http(let code): "Le serveur a répondu \(code)."
+        case .badServer: String(localized: "L’adresse du serveur n’est pas valide.")
+        case .unauthorized: String(localized: "Identifiants refusés par le serveur.")
+        case .http(let code): String(localized: "Le serveur a répondu \(code).")
         }
     }
 }
@@ -17,15 +17,15 @@ nonisolated extension Error {
     var readableMessage: String {
         if let xtream = self as? XtreamError { return xtream.errorDescription ?? "" }
         guard let url = self as? URLError else {
-            return self is DecodingError ? "Le serveur n’a pas répondu comme un serveur Xtream." : localizedDescription
+            return self is DecodingError ? String(localized: "Le serveur n’a pas répondu comme un serveur Xtream.") : localizedDescription
         }
         switch url.code {
-        case .notConnectedToInternet, .networkConnectionLost: return "Pas de connexion internet."
-        case .timedOut: return "Le serveur met trop de temps à répondre."
-        case .cannotFindHost, .dnsLookupFailed: return "Serveur introuvable. Vérifie l’adresse."
-        case .cannotConnectToHost: return "Le serveur refuse la connexion. Vérifie le port."
-        case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate: return "Connexion sécurisée impossible. Essaie en http://."
-        default: return "Erreur réseau (\(url.code.rawValue))."
+        case .notConnectedToInternet, .networkConnectionLost: return String(localized: "Pas de connexion internet.")
+        case .timedOut: return String(localized: "Le serveur met trop de temps à répondre.")
+        case .cannotFindHost, .dnsLookupFailed: return String(localized: "Serveur introuvable. Vérifie l’adresse.")
+        case .cannotConnectToHost: return String(localized: "Le serveur refuse la connexion. Vérifie le port.")
+        case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate: return String(localized: "Connexion sécurisée impossible. Essaie en http://.")
+        default: return String(localized: "Erreur réseau (\(url.code.rawValue)).")
         }
     }
 }

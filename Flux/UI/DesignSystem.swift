@@ -12,9 +12,9 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .light: "Clair"
-        case .dark: "Sombre"
-        case .system: "Système"
+        case .light: String(localized: "Clair")
+        case .dark: String(localized: "Sombre")
+        case .system: String(localized: "Système")
         }
     }
 
@@ -161,6 +161,8 @@ struct GlassSegmentedPicker<Value: Hashable>: View {
     @Binding var selection: Value
     let title: (Value) -> String
     let symbol: ((Value) -> String)?
+    /// An emoji above the title instead of a symbol: a country's flag.
+    let emoji: ((Value) -> String)?
     let label: LocalizedStringResource
     let commitsWhenSettled: Bool
 
@@ -179,12 +181,13 @@ struct GlassSegmentedPicker<Value: Hashable>: View {
     private static var inset: CGFloat { 4 }
     private static var settle: Animation { .spring(response: 0.32, dampingFraction: 0.86) }
 
-    init(_ label: LocalizedStringResource, options: [Value], selection: Binding<Value>, title: @escaping (Value) -> String, symbol: ((Value) -> String)? = nil, commitsWhenSettled: Bool = false) {
+    init(_ label: LocalizedStringResource, options: [Value], selection: Binding<Value>, title: @escaping (Value) -> String, symbol: ((Value) -> String)? = nil, emoji: ((Value) -> String)? = nil, commitsWhenSettled: Bool = false) {
         self.label = label
         self.options = options
         _selection = selection
         self.title = title
         self.symbol = symbol
+        self.emoji = emoji
         self.commitsWhenSettled = commitsWhenSettled
     }
 
@@ -212,9 +215,11 @@ struct GlassSegmentedPicker<Value: Hashable>: View {
                     VStack(spacing: 5) {
                         if let symbol {
                             Image(systemName: symbol(option)).font(.headline)
+                        } else if let emoji {
+                            Text(emoji(option)).font(.headline)
                         }
                         Text(title(option))
-                            .font(symbol == nil ? .subheadline.weight(.semibold) : .caption2.weight(.semibold))
+                            .font(symbol == nil && emoji == nil ? .subheadline.weight(.semibold) : .caption2.weight(.semibold))
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity)
@@ -226,7 +231,8 @@ struct GlassSegmentedPicker<Value: Hashable>: View {
                 }
             }
         }
-        .frame(height: symbol == nil ? 40 : 58)
+        // A flag stands taller than a symbol: more room for it.
+        .frame(height: emoji != nil ? 66 : symbol == nil ? 40 : 58)
         .padding(Self.inset)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .contentShape(Capsule())

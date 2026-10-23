@@ -6,7 +6,7 @@ nonisolated struct Quality: Hashable, Sendable, Codable {
     var rank: Int
     var label: String
 
-    static let untagged = Quality(rank: 3, label: "Standard")
+    static let untagged = Quality(rank: 3, label: String(localized: "Standard"))
 }
 
 /// One way to watch a channel: a stream, its quality, and how many hours
@@ -19,7 +19,7 @@ nonisolated struct ChannelVariant: Hashable, Sendable, Identifiable {
     var isFree = false
     var id: Int { channel.id }
 
-    static let freeQuality = Quality(rank: 7, label: "Gratuit")
+    static let freeQuality = Quality(rank: 7, label: String(localized: "Gratuit"))
 }
 
 /// A channel as people think of it: "TF1", whatever the number of streams
@@ -80,9 +80,9 @@ nonisolated enum QualityPreference: String, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .best: "Maximale"
+        case .best: String(localized: "Maximale")
         case .hd: "HD"
-        case .saver: "Économie"
+        case .saver: String(localized: "Économie")
         }
     }
 
@@ -105,15 +105,23 @@ nonisolated struct GuideOptions: Hashable, Sendable {
     /// The free channels' streams first for the channels the provider has
     /// too (France 2, Arte, BFM TV…), the provider's kept as backups.
     var prefersFree = true
+    /// The free account's channels: one country's, or all.
+    var freeScope = FreeScope.us
 
     static let shiftedKey = "live.showsShifted"
     static let prefersFreeKey = "live.prefersFree"
+    /// Whether the Guide tab shows: on by default on the TV, off on phones.
+    static let tabKey = "guide.tab"
+    /// Whether the Films and Séries tabs show, when there's something in them.
+    static let moviesTabKey = "tabs.movies"
+    static let seriesTabKey = "tabs.series"
 
     @MainActor static var current: GuideOptions {
         let d = UserDefaults.standard
         return GuideOptions(showsShifted: d.bool(forKey: shiftedKey),
                             numbering: ChannelNumbering(rawValue: d.string(forKey: ChannelNumbering.storageKey) ?? "") ?? .default,
-                            prefersFree: d.object(forKey: prefersFreeKey) as? Bool ?? true)
+                            prefersFree: d.object(forKey: prefersFreeKey) as? Bool ?? true,
+                            freeScope: FreeScope(rawValue: d.string(forKey: FreeScope.storageKey) ?? "") ?? .detected)
     }
 }
 
@@ -128,6 +136,8 @@ nonisolated struct LiveGuide: Sendable {
     private var byStream: [Int: Int] = [:]
 
     var isEmpty: Bool { groups.isEmpty }
+
+    func count(in categoryID: String) -> Int { byCategory[categoryID]?.count ?? 0 }
 
     func groups(in categoryID: String?) -> [ChannelGroup] {
         guard let categoryID else { return groups }
@@ -284,8 +294,8 @@ nonisolated struct ChannelName {
         "FHD": (4, "FHD"), "FULLHD": (4, "FHD"), "1080P": (4, "FHD"), "1080": (4, "FHD"), "1080I": (4, "FHD"),
         "HEVC": (5, "HEVC"), "H265": (5, "HEVC"), "H.265": (5, "HEVC"), "X265": (5, "HEVC"),
         "UHD": (5, "UHD"), "4K": (6, "4K"), "2160P": (6, "4K"), "8K": (6, "8K"),
-        "HDR": (6, "HDR"), "50FPS": (4, "50 i/s"), "60FPS": (4, "60 i/s"),
-        "RAW": (4, "RAW"), "VIP": (3, "VIP"), "BACKUP": (2, "Secours"), "BK": (2, "Secours"),
+        "HDR": (6, "HDR"), "50FPS": (4, String(localized: "50 i/s")), "60FPS": (4, String(localized: "60 i/s")),
+        "RAW": (4, "RAW"), "VIP": (3, "VIP"), "BACKUP": (2, String(localized: "Secours")), "BK": (2, String(localized: "Secours")),
     ]
 
     /// The ISO country codes, and "UK": a bare "FR TF1" or "TF1 FR" is read

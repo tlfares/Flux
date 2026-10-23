@@ -32,6 +32,7 @@ struct TVFavoriteButton: View {
 struct TVPosterBrowser<Item: Identifiable & Hashable>: View {
     let empty: String
     let categories: [Category]
+    let kind: MediaKind
     let isEmpty: Bool
     let items: [Item]
     @Binding var selection: String
@@ -51,7 +52,7 @@ struct TVPosterBrowser<Item: Identifiable & Hashable>: View {
                     TVCatalogState(empty: empty)
                 } else {
                     HStack(alignment: .top, spacing: 30) {
-                        TVCategoryColumn(entries: TVCategory.entries(categories, recent: false), selection: $selection)
+                        TVCategoryColumn(categories: categories, kind: kind, selection: $selection)
                         ScrollView {
                             if items.isEmpty {
                                 ContentUnavailableView(selection == TVCategory.favorites ? "Aucun favori" : "Rien ici", systemImage: "film",
@@ -91,7 +92,7 @@ struct TVMoviesView: View {
         case TVCategory.all: catalog.movies.items
         default: catalog.movies.items(in: selection)
         }
-        TVPosterBrowser(empty: "Aucun film", categories: catalog.movies.categories, isEmpty: catalog.movies.isEmpty, items: movies,
+        TVPosterBrowser(empty: String(localized: "Aucun film"), categories: catalog.movies.categories, kind: .movie, isEmpty: catalog.movies.isEmpty, items: movies,
                         selection: $selection, title: { DisplayName.clean($0.name) }, image: \.poster,
                         progress: { library.progress[Library.key(.movie, $0.id)]?.fraction },
                         favorite: { .movie($0) }, route: { .movie($0) })
@@ -109,7 +110,7 @@ struct TVSeriesView: View {
         case TVCategory.all: catalog.series.items
         default: catalog.series.items(in: selection)
         }
-        TVPosterBrowser(empty: "Aucune série", categories: catalog.series.categories, isEmpty: catalog.series.isEmpty, items: series,
+        TVPosterBrowser(empty: String(localized: "Aucune série"), categories: catalog.series.categories, kind: .series, isEmpty: catalog.series.isEmpty, items: series,
                         selection: $selection, title: { DisplayName.clean($0.name) }, image: \.cover,
                         favorite: { .series($0) }, route: { .series($0) })
     }
@@ -196,8 +197,8 @@ struct TVMovieDetail: View {
             TVFavoriteButton(favorite: .movie(movie))
         } below: {
             VStack(alignment: .leading, spacing: 14) {
-                if let director = details?.director { credit("Réalisation", director) }
-                if let cast = details?.cast { credit("Avec", cast) }
+                if let director = details?.director { credit(String(localized: "Réalisation"), director) }
+                if let cast = details?.cast { credit(String(localized: "Avec"), cast) }
             }
             .padding(.top, 20)
         }
@@ -244,7 +245,7 @@ struct TVSeriesDetail: View {
                     if let client = account.client { player.play(next, of: series, client: client) }
                 } label: {
                     let started = library.progress[Library.key(.series, next.id)] != nil
-                    Label(started ? "Reprendre S\(next.season) E\(next.number)" : "Lecture S\(next.season) E\(next.number)", systemImage: "play.fill")
+                    Label(started ? String(localized: "Reprendre S\(next.season) E\(next.number)") : String(localized: "Lecture S\(next.season) E\(next.number)"), systemImage: "play.fill")
                         .padding(.horizontal, 20)
                 }
                 .buttonStyle(.borderedProminent)
@@ -346,7 +347,7 @@ struct TVSeriesDetail: View {
         var f: [String] = []
         if let year = details?.year ?? series.year { f.append(year) }
         if let genre = details?.genre { f.append(genre) }
-        if seasons.count > 0 { f.append(seasons.count == 1 ? "1 saison" : "\(seasons.count) saisons") }
+        if seasons.count > 0 { f.append(seasons.count == 1 ? String(localized: "1 saison") : String(localized: "\(seasons.count) saisons")) }
         return f
     }
 

@@ -8,19 +8,23 @@ nonisolated struct Account: Codable, Hashable, Sendable, Identifiable {
     var credentials: Credentials
 
     /// The name, else the server's host.
-    var title: String { name.nonEmpty ?? (credentials.source == .free ? "Chaînes gratuites" : host) }
+    var title: String {
+        // The free account's own name, saved in French before, follows the device's language.
+        if credentials.source == .free, name.isEmpty || name == "Chaînes gratuites" { return String(localized: "Chaînes gratuites") }
+        return name.nonEmpty ?? host
+    }
     var host: String { URL(string: credentials.baseURL)?.host() ?? credentials.server }
 
     /// What it is, under its name: the login, or the kind of list.
     var subtitle: String {
         switch credentials.source {
         case .xtream: "\(credentials.username) · \(host)"
-        case .playlist: "Liste M3U · \(host)"
-        case .free: "TNT, info et Pluto TV, sans abonnement"
+        case .playlist: String(localized: "Liste M3U · \(host)")
+        case .free: String(localized: "TNT, info et Pluto TV, sans abonnement")
         }
     }
 
-    static let free = Account(name: "Chaînes gratuites", credentials: .free)
+    static let free = Account(name: "", credentials: .free)
 }
 
 /// The accounts, and the one in use. Logins live in the Keychain, never in

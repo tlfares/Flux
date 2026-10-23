@@ -34,7 +34,11 @@ struct TVRootView: View {
     @AppStorage(FavoritesStyle.sharedKey) private var sharesFavorites = true
     @AppStorage(GuideOptions.shiftedKey) private var showsShifted = false
     @AppStorage(GuideOptions.prefersFreeKey) private var prefersFree = true
+    @AppStorage(FreeScope.storageKey) private var freeScope = FreeScope.detected
     @AppStorage(ChannelNumbering.storageKey) private var numbering = ChannelNumbering.default
+    @AppStorage(GuideOptions.tabKey) private var showsGuideTab = true
+    @AppStorage(GuideOptions.moviesTabKey) private var showsMoviesTab = true
+    @AppStorage(GuideOptions.seriesTabKey) private var showsSeriesTab = true
     @Environment(EPG.self) private var epg
     @State private var tab = TVTab.home
     @State private var openGuide: [String: [Programme]] = [:]
@@ -47,11 +51,13 @@ struct TVRootView: View {
         return TabView(selection: $tab) {
             Tab(value: TVTab.home) { TVHomeView() } label: { Text("Accueil") }
             Tab(value: TVTab.live) { TVChannelsView() } label: { Text("Direct") }
-            Tab(value: TVTab.guide) { TVGuideView() } label: { Text("Guide") }
-            if isPanel || !catalog.movies.isEmpty {
+            if showsGuide {
+                Tab(value: TVTab.guide) { TVGuideView() } label: { Text("Guide") }
+            }
+            if showsMoviesTab, isPanel || !catalog.movies.isEmpty {
                 Tab(value: TVTab.movies) { TVMoviesView() } label: { Text("Films") }
             }
-            if isPanel || !catalog.series.isEmpty {
+            if showsSeriesTab, isPanel || !catalog.series.isEmpty {
                 Tab(value: TVTab.series) { TVSeriesView() } label: { Text("Séries") }
             }
             Tab(value: TVTab.settings) { TVSettingsView() } label: { Text("Réglages") }
@@ -59,10 +65,20 @@ struct TVRootView: View {
         }
     }
 
+    /// Not when it's off, or would be empty: the free American channels
+    /// have no guide.
+    private var showsGuide: Bool {
+        showsGuideTab && epg.hasGuide(catalog.guide.groups, isPanel: account.client?.isPanel ?? true)
+    }
+
     var body: some View {
         Group {
             if let client = account.client {
                 tabs
+                .onChange(of: showsGuide) { if !showsGuide, tab == .guide { tab = .live } }
+                .onChange(of: [showsMoviesTab, showsSeriesTab]) {
+                    if (!showsMoviesTab && tab == .movies) || (!showsSeriesTab && tab == .series) { tab = .live }
+                }
                 .fullScreenCover(isPresented: Bindable(player).showsLive, onDismiss: { if player.channel != nil { player.closeLive() } }) {
                     TVLiveScreen()
                 }
@@ -86,9 +102,13 @@ struct TVRootView: View {
         .onChange(of: [account.activeID?.uuidString, String(sharesFavorites)], initial: true) {
             library.use(account: account.activeID, sharesFavorites: sharesFavorites)
         }
+        .onChange(of: account.credentials, initial: true) {
+            CategoryLayouts.shared.account = account.credentials.map(Catalog.accountKey) ?? ""
+        }
         .onChange(of: showsShifted) { catalog.optionsChanged() }
         .onChange(of: prefersFree) { catalog.optionsChanged() }
         .onChange(of: numbering) { catalog.optionsChanged() }
+        .onChange(of: freeScope) { catalog.optionsChanged() }
         .task { openGuide = await OpenGuide.load() }
         .onChange(of: [catalog.guide.groups.count, openGuide.count]) {
             epg.useOpenGuide(openGuide, for: catalog.guide.groups)
@@ -244,7 +264,13 @@ struct TVSettingsView: View {
     @AppStorage(ChannelNumbering.storageKey) private var numbering = ChannelNumbering.default
     @AppStorage(GuideOptions.shiftedKey) private var showsShifted = false
     @AppStorage(GuideOptions.prefersFreeKey) private var prefersFree = true
+    @AppStorage(FreeScope.storageKey) private var freeScope = FreeScope.detected
+    @AppStorage(GuideOptions.tabKey) private var showsGuideTab = true
+    @AppStorage(GuideOptions.moviesTabKey) private var showsMoviesTab = true
+    @AppStorage(GuideOptions.seriesTabKey) private var showsSeriesTab = true
+    @Environment(EPG.self) private var epg
     @State private var addsAccount = false
+    @State private var confirmsClearing = false
 
     var body: some View {
         NavigationStack {
@@ -265,20 +291,31 @@ struct TVSettingsView: View {
                     }
                 }
 
-                Section("Lecture") {
-                    Picker("Qualité", selection: $quality) {
-                        ForEach(QualityPreference.allCases, id: \.self) { Text($0.title).tag($0) }
+                Section(String(localized: "settings.playback", defaultValue: "Lecture")) {
+                    // The free channels have one country's line-up to pick, and
+                    // none of a subscription's qualities.
+                    if account.credentials?.source == .free {
+                        Picker("Chaînes gratuites", selection: $freeScope) {
+                            ForEach(FreeScope.allCases, id: \.self) { Text("\($0.emoji) \($0.title)").tag($0) }
+                        }
+                    } else {
+                        Picker("Qualité", selection: $quality) {
+                            ForEach(QualityPreference.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }
                     }
                     Picker("Numérotation", selection: $numbering) {
                         ForEach(ChannelNumbering.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
+                    // Shifted channels are a subscription's: the free ones have none.
                     // A row rather than a Toggle: its tint went white on the
                     // focused white cell.
-                    Button { showsShifted.toggle() } label: {
-                        TVSettingsLabel {
-                            Text("Chaînes en différé (+1 h, +2 h…)")
-                            Spacer()
-                            Text(showsShifted ? "Oui" : "Non").foregroundStyle(.secondary)
+                    if account.credentials?.source != .free {
+                        Button { showsShifted.toggle() } label: {
+                            TVSettingsLabel {
+                                Text("Chaînes en différé (+1 h, +2 h…)")
+                                Spacer()
+                                Text(showsShifted ? "Oui" : "Non").foregroundStyle(.secondary)
+                            }
                         }
                     }
                     if account.credentials?.source != .free {
@@ -287,6 +324,35 @@ struct TVSettingsView: View {
                                 Text("Flux gratuits en priorité (France 2, Arte…)")
                                 Spacer()
                                 Text(prefersFree ? "Oui" : "Non").foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    // Only when there's a guide to show.
+                    if epg.hasGuide(catalog.guide.groups, isPanel: account.client?.isPanel ?? true) {
+                        Button { showsGuideTab.toggle() } label: {
+                            TVSettingsLabel {
+                                Text("Onglet Guide")
+                                Spacer()
+                                Text(showsGuideTab ? "Oui" : "Non").foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    // Only for an account that has some: the free channels have none.
+                    if account.client?.isPanel == true || !catalog.movies.isEmpty {
+                        Button { showsMoviesTab.toggle() } label: {
+                            TVSettingsLabel {
+                                Text("Onglet Films")
+                                Spacer()
+                                Text(showsMoviesTab ? "Oui" : "Non").foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    if account.client?.isPanel == true || !catalog.series.isEmpty {
+                        Button { showsSeriesTab.toggle() } label: {
+                            TVSettingsLabel {
+                                Text("Onglet Séries")
+                                Spacer()
+                                Text(showsSeriesTab ? "Oui" : "Non").foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -305,9 +371,20 @@ struct TVSettingsView: View {
                             }
                         }
                     }
+                    Button {
+                        confirmsClearing = true
+                    } label: {
+                        TVSettingsLabel { Text("Effacer l’historique") }
+                    }
+                    .disabled(library.progress.isEmpty && library.recentChannels.isEmpty)
                 }
             }
             .frame(maxWidth: 1200)
+            .confirmationDialog("Effacer l’historique ?", isPresented: $confirmsClearing, titleVisibility: .visible) {
+                Button("Effacer", role: .destructive) { library.clearHistory() }
+            } message: {
+                Text("Les chaînes récentes et la reprise des films et épisodes seront oubliées.")
+            }
             .fullScreenCover(isPresented: $addsAccount) {
                 TVSignInView { addsAccount = false }
             }

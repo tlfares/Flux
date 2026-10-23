@@ -11,7 +11,7 @@ struct TVHomeView: View {
 
     var body: some View {
         if catalog.guide.isEmpty {
-            TVCatalogState(empty: "Aucune chaîne")
+            TVCatalogState(empty: String(localized: "Aucune chaîne"))
         } else {
             content
         }
@@ -35,12 +35,12 @@ struct TVHomeView: View {
                     }
                 }
                 if !favorites.isEmpty {
-                    TVShelf(title: "Mes chaînes") {
+                    TVShelf(title: String(localized: "Mes chaînes")) {
                         ForEach(favorites) { card($0, shelf: "favorites") }
                     }
                 }
                 if !tnt.isEmpty {
-                    TVShelf(title: "En ce moment à la TV") {
+                    TVShelf(title: String(localized: "En ce moment à la TV")) {
                         ForEach(tnt) { card($0, shelf: "tnt") }
                     }
                 }
@@ -150,11 +150,11 @@ struct TVChannelsView: View {
 
     var body: some View {
         if catalog.guide.isEmpty {
-            TVCatalogState(empty: "Aucune chaîne")
+            TVCatalogState(empty: String(localized: "Aucune chaîne"))
         } else {
             let channels = tvChannels(selection, catalog: catalog, library: library)
             HStack(alignment: .top, spacing: 30) {
-                TVCategoryColumn(entries: TVCategory.entries(catalog.live.categories, recent: true), selection: $selection)
+                TVCategoryColumn(categories: catalog.live.categories, kind: .live, recent: true, selection: $selection)
                 ScrollView {
                     if channels.isEmpty {
                         ContentUnavailableView(selection == TVCategory.favorites ? "Aucun favori" : "Rien ici", systemImage: "tv",
@@ -195,7 +195,7 @@ struct TVGuideView: View {
 
     var body: some View {
         if catalog.guide.isEmpty {
-            TVCatalogState(empty: "Aucune chaîne")
+            TVCatalogState(empty: String(localized: "Aucune chaîne"))
         } else {
             TimelineView(.periodic(from: .now, by: 60)) { context in
                 let start = Self.windowStart(context.date)
@@ -232,7 +232,7 @@ struct TVGuideView: View {
     private func header(start: Date, perSecond: CGFloat, now: Date) -> some View {
         HStack(spacing: 12) {
             Picker("Catégorie", selection: $selection) {
-                ForEach(TVCategory.entries(catalog.live.categories, recent: true), id: \.id) { entry in
+                ForEach(TVCategory.entries(catalog.live.categories, recent: true, kind: .live), id: \.id) { entry in
                     Text(DisplayName.clean(entry.name)).tag(entry.id)
                 }
             }

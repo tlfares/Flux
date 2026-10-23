@@ -240,12 +240,19 @@ struct TVShelf<Content: View>: View {
     }
 }
 
-/// The list of categories down the left of a catalogue screen.
+/// The list of categories down the left of a catalogue screen, in the
+/// order chosen for them. Holding one moves or hides it; the last row
+/// opens them all to reorder.
 struct TVCategoryColumn: View {
-    let entries: [(id: String, name: String)]
+    let categories: [Category]
+    let kind: MediaKind
+    var recent = false
     @Binding var selection: String
+    @State private var isEditing = false
+    private var layouts: CategoryLayouts { .shared }
 
     var body: some View {
+        let entries = TVCategory.entries(categories, recent: recent, kind: kind)
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
@@ -266,7 +273,29 @@ struct TVCategoryColumn: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(TVRowStyle(cornerRadius: 16, isCurrent: entry.id == selection))
+                        .contextMenu {
+                            if !entry.id.hasPrefix("_") {
+                                Button("Monter", systemImage: "arrow.up") { layouts.move(entry.id, by: -1, in: categories, kind) }
+                                Button("Descendre", systemImage: "arrow.down") { layouts.move(entry.id, by: 1, in: categories, kind) }
+                                Button("Masquer", systemImage: "eye.slash") { layouts.toggleHidden(entry.id, kind) }
+                            }
+                            Button("Organiser les catégories", systemImage: "list.bullet") { isEditing = true }
+                        }
                         .id(entry.id)
+                    }
+                    if !categories.isEmpty {
+                        Button {
+                            isEditing = true
+                        } label: {
+                            Label("Organiser", systemImage: "slider.horizontal.3")
+                                .font(.callout)
+                                .padding(.horizontal, 24)
+                                .padding(.vertical, 16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(TVRowStyle(cornerRadius: 16))
+                        .opacity(0.8)
+                        .padding(.top, 12)
                     }
                 }
                 .padding(.vertical, 20)
@@ -277,6 +306,64 @@ struct TVCategoryColumn: View {
         }
         .frame(width: 440)
         .focusSection()
+        // A category that went away (another country, another account): everything instead.
+        .onChange(of: categories.map(\.id), initial: true) { _, ids in
+            if !ids.isEmpty, !selection.hasPrefix("_"), !ids.contains(selection) { selection = TVCategory.all }
+        }
+        .fullScreenCover(isPresented: $isEditing) {
+            TVCategoryEditor(categories: categories, kind: kind)
+        }
+    }
+}
+
+/// Every category, those put away too: the name shows or hides one, the
+/// arrows beside it move it.
+private struct TVCategoryEditor: View {
+    let categories: [Category]
+    let kind: MediaKind
+    @Environment(\.dismiss) private var dismiss
+    private var layouts: CategoryLayouts { .shared }
+
+    var body: some View {
+        let list = layouts.arranged(categories, kind, includingHidden: true)
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(list) { category in
+                        let hidden = layouts.isHidden(category.id, kind)
+                        HStack(spacing: 20) {
+                            Button {
+                                layouts.toggleHidden(category.id, kind)
+                            } label: {
+                                HStack(spacing: 20) {
+                                    Image(systemName: hidden ? "eye.slash" : "eye").frame(width: 50)
+                                    Text(DisplayName.clean(category.name)).lineLimit(1)
+                                    Spacer(minLength: 0)
+                                }
+                                .opacity(hidden ? 0.5 : 1)
+                            }
+                            Button { layouts.move(category.id, by: -1, in: categories, kind) } label: {
+                                Image(systemName: "chevron.up")
+                            }
+                            .accessibilityLabel("Monter")
+                            Button { layouts.move(category.id, by: 1, in: categories, kind) } label: {
+                                Image(systemName: "chevron.down")
+                            }
+                            .accessibilityLabel("Descendre")
+                        }
+                    }
+                } footer: {
+                    Text("Le nom affiche ou masque une catégorie, les flèches la déplacent. Les catégories masquées restent dans « Tout ».")
+                }
+                if layouts.isCustomized(kind) {
+                    Section {
+                        Button("Réinitialiser l’ordre", systemImage: "arrow.counterclockwise", role: .destructive) { layouts.reset(kind) }
+                    }
+                }
+            }
+            .frame(maxWidth: 1200)
+            .navigationTitle("Catégories")
+        }
     }
 }
 
@@ -286,11 +373,12 @@ enum TVCategory {
     static let favorites = "_fav"
     static let recent = "_recent"
 
-    static func entries(_ categories: [Category], recent: Bool) -> [(id: String, name: String)] {
-        var list: [(String, String)] = [(favorites, "Favoris")]
-        if recent { list.append((self.recent, "Récents")) }
-        list.append((all, "Tout"))
-        return list + categories.map { ($0.id, $0.name) }
+    @MainActor
+    static func entries(_ categories: [Category], recent: Bool, kind: MediaKind) -> [(id: String, name: String)] {
+        var list: [(String, String)] = [(favorites, String(localized: "Favoris"))]
+        if recent { list.append((self.recent, String(localized: "Récents"))) }
+        list.append((all, String(localized: "Tout")))
+        return list + CategoryLayouts.shared.arranged(categories, kind).map { ($0.id, $0.name) }
     }
 }
 

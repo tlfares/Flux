@@ -5,18 +5,27 @@ import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
+
+/** A subtitle or caption track of the stream playing. */
+data class TextTrack(val group: TrackGroup, val index: Int, val label: String)
 
 /** A film or an episode, for the full-screen player. */
 data class Video(val id: String, val url: String, val title: String, val subtitle: String? = null, val resumeAt: Double? = null)
@@ -38,11 +47,16 @@ class TVPlayer(context: Context, private val state: AppState) {
     var hasPicture by mutableStateOf(false); private set
     var showsLive by mutableStateOf(false); private set
     var video by mutableStateOf<Video?>(null); private set
+    /** The stream's subtitles and captions, and the one shown (null: off). */
+    var textTracks by mutableStateOf<List<TextTrack>>(emptyList()); private set
+    var textTrack by mutableStateOf<TextTrack?>(null); private set
+    /** Subtitles on, the stream had none in the device's language: its first is picked, once. */
+    private var pickedFirstText = false
 
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setMediaSourceFactory(DefaultMediaSourceFactory(
-            DefaultHttpDataSource.Factory().setUserAgent(XtreamClient.USER_AGENT).setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(15_000).setReadTimeoutMs(20_000)
+            // Timeouts on the client's own: 10 s, longer than a stream that should play needs.
+            androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(Net.callFactory).setUserAgent(XtreamClient.USER_AGENT)
         ))
         .build()
 
@@ -52,8 +66,34 @@ class TVPlayer(context: Context, private val state: AppState) {
     private var progressJob: Job? = null
 
     init {
+        applySubtitles()
         player.addListener(object : Player.Listener {
             override fun onRenderedFirstFrame() { hasPicture = true }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                val list = ArrayList<TextTrack>()
+                var shown: TextTrack? = null
+                for (group in tracks.groups) {
+                    if (group.type != C.TRACK_TYPE_TEXT) continue
+                    for (i in 0 until group.length) {
+                        if (!group.isTrackSupported(i)) continue
+                        val track = TextTrack(group.mediaTrackGroup, i, label(group.getTrackFormat(i), list.size + 1))
+                        list += track
+                        if (group.isTrackSelected(i)) shown = track
+                    }
+                }
+                textTracks = list
+                textTrack = shown
+                if (state.settings.subtitles && shown == null && list.isNotEmpty() && !pickedFirstText) {
+                    pickedFirstText = true
+                    selectText(list[0])
+                }
+            }
+
+            // Media3's own controls (films) turn them on or off too: kept for every stream.
+            override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
+                state.settings.changeSubtitles(C.TRACK_TYPE_TEXT !in parameters.disabledTrackTypes)
+            }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
@@ -61,7 +101,7 @@ class TVPlayer(context: Context, private val state: AppState) {
 
             override fun onPlayerError(error: PlaybackException) {
                 if (channel != null && showsLive) streamFailed()
-                else if (video != null) this@TVPlayer.error = "Lecture impossible (${error.errorCodeName})."
+                else if (video != null) this@TVPlayer.error = tr("Lecture impossible (${error.errorCodeName}).", "Can’t play this (${error.errorCodeName}).")
             }
         })
     }
@@ -79,6 +119,9 @@ class TVPlayer(context: Context, private val state: AppState) {
         showsLive = true
         start(group, variant)
     }
+
+    /** What up and down zap through from now on: a category picked under the picture. */
+    fun changeLineup(list: List<ChannelGroup>) { if (list.isNotEmpty()) lineup = list }
 
     /** The next channel down the list (`step` 1) or up it (-1), shown at once
      *  and tuned once the presses stop. */
@@ -132,10 +175,13 @@ class TVPlayer(context: Context, private val state: AppState) {
         val group = channel ?: return
         val delay = variant?.delay ?: return
         val next = group.variants(delay).firstOrNull { it.id !in tried }
-        if (next != null) tune(group, next) else error = "Cette chaîne ne répond pas pour le moment."
+        if (next != null) tune(group, next) else error = tr("Cette chaîne ne répond pas pour le moment.", "This channel isn’t responding right now.")
     }
 
     fun retry() { channel?.let { start(it) } }
+
+    /** Another of the channel's streams, picked by hand: kept for it from now on. */
+    fun pick(variant: ChannelVariant) { channel?.let { start(it, variant) } }
 
     fun togglePause() {
         if (isPaused) player.play() else player.pause()
@@ -181,10 +227,44 @@ class TVPlayer(context: Context, private val state: AppState) {
         error = null
     }
 
+    // Subtitles
+
+    /** Off: no text track at all, even one the stream flags as default or
+     *  forced. On: the device's language first. */
+    private fun applySubtitles() {
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !state.settings.subtitles)
+            .setPreferredTextLanguage(Locale.getDefault().language)
+            .setSelectUndeterminedTextLanguage(true)
+            .build()
+    }
+
+    /** Shows this track, or none; remembered for every stream after. */
+    fun selectText(track: TextTrack?) {
+        val builder = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT)
+        if (track == null) builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+        else builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setOverrideForType(TrackSelectionOverride(track.group, track.index))
+        state.settings.changeSubtitles(track != null)
+        player.trackSelectionParameters = builder.build()
+    }
+
+    /** "Français", "English (CC)", or "Piste 2" when the stream says nothing. */
+    private fun label(format: Format, n: Int): String {
+        val language = format.language?.takeIf { it.isNotBlank() && it != "und" }
+            ?.let { Locale.forLanguageTag(it).getDisplayLanguage(Locale.getDefault()).replaceFirstChar { c -> c.titlecase(Locale.getDefault()) } }
+        val cc = format.sampleMimeType == MimeTypes.APPLICATION_CEA608 || format.sampleMimeType == MimeTypes.APPLICATION_CEA708
+        val name = format.label?.nonEmpty ?: language ?: tr("Piste $n", "Track $n")
+        return if (cc && "CC" !in name) "$name (CC)" else name
+    }
+
     // Playback
 
     private fun load(url: String, title: String, subtitle: String?, resumeAt: Double?, live: Boolean, hls: Boolean = live) {
         progressJob?.cancel()
+        // Each stream starts from the setting, not from the last one's track.
+        pickedFirstText = false
+        applySubtitles()
         val item = MediaItem.Builder()
             .setUri(url)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setSubtitle(subtitle).build())

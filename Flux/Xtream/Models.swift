@@ -146,7 +146,7 @@ nonisolated struct LiveChannel: Codable, Hashable, Sendable, Identifiable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         guard let id = c.int(.id) else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "no id")) }
         self.id = id
-        name = c.string(.name)?.nonEmpty ?? "Chaîne \(id)"
+        name = c.string(.name)?.nonEmpty ?? String(localized: "Chaîne \(id)")
         number = c.int(.number)
         icon = c.string(.icon)?.nonEmpty
         categoryID = c.string(.categoryID)
@@ -183,7 +183,7 @@ nonisolated struct Movie: Codable, Hashable, Sendable, Identifiable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         guard let id = c.int(.id) else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "no id")) }
         self.id = id
-        name = c.string(.name)?.nonEmpty ?? "Film \(id)"
+        name = c.string(.name)?.nonEmpty ?? String(localized: "Film \(id)")
         poster = c.string(.poster)?.nonEmpty
         categoryID = c.string(.categoryID)
         rating = c.double(.rating).flatMap { $0 > 0 ? $0 : nil }
@@ -216,7 +216,7 @@ nonisolated struct Series: Codable, Hashable, Sendable, Identifiable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         guard let id = c.int(.id) else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "no id")) }
         self.id = id
-        name = c.string(.name)?.nonEmpty ?? "Série \(id)"
+        name = c.string(.name)?.nonEmpty ?? String(localized: "Série \(id)")
         cover = c.string(.cover)?.nonEmpty
         categoryID = c.string(.categoryID)
         rating = c.double(.rating).flatMap { $0 > 0 ? $0 : nil }
@@ -339,7 +339,7 @@ nonisolated struct Episode: Decodable, Hashable, Sendable, Identifiable {
         self.id = id
         number = c.int(.episode_num) ?? 0
         season = c.int(.season) ?? 0
-        title = c.string(.title)?.nonEmpty ?? "Épisode \(number)"
+        title = c.string(.title)?.nonEmpty ?? String(localized: "Épisode \(number)")
         container = c.string(.container_extension)?.nonEmpty ?? "mp4"
         if let i = try? c.nestedContainer(keyedBy: Info.self, forKey: .info) {
             image = i.string(.movie_image)?.nonEmpty
@@ -410,7 +410,7 @@ nonisolated struct Programme: Decodable, Sendable, Hashable {
             let raw = c.string(key) ?? ""
             return (Data(base64Encoded: raw).flatMap { String(data: $0, encoding: .utf8) } ?? raw).nonEmpty
         }
-        title = text(.title) ?? "Programme"
+        title = text(.title) ?? String(localized: "Programme")
         summary = text(.description)
         start = Date(timeIntervalSince1970: c.double(.start_timestamp) ?? 0)
         end = Date(timeIntervalSince1970: c.double(.stop_timestamp) ?? 0)

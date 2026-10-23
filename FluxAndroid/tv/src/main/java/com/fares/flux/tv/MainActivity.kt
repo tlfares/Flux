@@ -36,6 +36,7 @@ import androidx.tv.material3.Text
 import com.fares.flux.core.AppState
 import com.fares.flux.core.OpenGuide
 import com.fares.flux.core.TVPlayer
+import com.fares.flux.core.tr
 import com.fares.flux.tv.ui.ChannelsScreen
 import com.fares.flux.tv.ui.FluxTheme
 import com.fares.flux.tv.ui.GuideScreen
@@ -68,7 +69,9 @@ class MainActivity : ComponentActivity() {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-        app = AppState(applicationContext)
+        app = AppState(applicationContext, tv = true)
+        // Images through the same client as the rest, so the DNS picked applies to them too.
+        coil.Coil.setImageLoader(coil.ImageLoader.Builder(applicationContext).callFactory(com.fares.flux.core.Net.callFactory).build())
         player = TVPlayer(this, app)
         setContent {
             FluxTheme {
@@ -94,6 +97,17 @@ class MainActivity : ComponentActivity() {
 }
 
 private val allTabs = listOf("Accueil", "Direct", "Guide", "Films", "Séries", "Recherche", "Réglages")
+
+/** A tab as shown: the French name is its id. */
+private fun tabTitle(tab: String) = tr(tab, when (tab) {
+    "Accueil" -> "Home"
+    "Direct" -> "Live"
+    "Films" -> "Movies"
+    "Séries" -> "Series"
+    "Recherche" -> "Search"
+    "Réglages" -> "Settings"
+    else -> tab
+})
 
 @Composable
 private fun Root() {
@@ -138,7 +152,8 @@ private fun Root() {
     // Kept while a page or the player covers the tabs: the tab, the
     // category picked in each.
     val saved = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
-    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
+    // By name: tabs come and go (Guide, Films…), the one in use stays.
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(allTabs[0]) }
     var route by remember { androidx.compose.runtime.mutableStateOf<Route?>(null) }
     when {
         client == null -> SignInScreen()
@@ -152,22 +167,26 @@ private fun Root() {
 }
 
 @Composable
-private fun Tabs(tab: Int, select: (Int) -> Unit) {
+private fun Tabs(current: String, select: (String) -> Unit) {
     val app = LocalApp.current
-    // A playlist without films or series (the free channels) shows none.
-    val isPanel = app.accounts.client?.isPanel ?: true
     val tabs = allTabs.filter { t ->
         when (t) {
-            "Films" -> isPanel || !app.catalog.movies.isEmpty
-            "Séries" -> isPanel || !app.catalog.series.isEmpty
+            // With something in them, and unless turned off.
+            "Films" -> app.showsMoviesTab
+            "Séries" -> app.showsSeriesTab
+            // Only where there's something on it, and unless turned off.
+            "Guide" -> app.showsGuideTab
             else -> true
         }
     }
+    // The tab in use gone (the guide turned off, nothing in it): Direct.
+    val tab = tabs.indexOf(current).takeIf { it >= 0 } ?: tabs.indexOf("Direct").coerceAtLeast(0)
+    LaunchedEffect(current, tabs) { if (current !in tabs) select(tabs[tab]) }
     var tabsFocused by remember { androidx.compose.runtime.mutableStateOf(false) }
     val tabRow = remember { FocusRequester() }
     // Back from the content goes up to the tabs; from the tabs, to Accueil, then out.
     BackHandler(enabled = !tabsFocused || tab != 0) {
-        if (!tabsFocused) runCatching { tabRow.requestFocus() } else select(0)
+        if (!tabsFocused) runCatching { tabRow.requestFocus() } else select(tabs[0])
     }
     Column(Modifier.fillMaxSize()) {
         TabRow(
@@ -180,8 +199,8 @@ private fun Tabs(tab: Int, select: (Int) -> Unit) {
             tabs.forEachIndexed { i, title ->
                 // Focus comes back to the tab in use, not the first one,
                 // which would switch to Accueil.
-                Tab(selected = tab == i, onFocus = { select(i) }, modifier = if (tab == i) Modifier.focusRequester(tabRow) else Modifier) {
-                    Text(title, Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 15.sp)
+                Tab(selected = tab == i, onFocus = { select(title) }, modifier = if (tab == i) Modifier.focusRequester(tabRow) else Modifier) {
+                    Text(tabTitle(title), Modifier.padding(horizontal = 14.dp, vertical = 6.dp), fontSize = 15.sp)
                 }
             }
         }

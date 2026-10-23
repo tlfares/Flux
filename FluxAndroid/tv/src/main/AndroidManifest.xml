@@ -11,6 +11,7 @@
 
     <application
         android:allowBackup="false"
+        android:localeConfig="@xml/locales_config"
         android:banner="@drawable/banner"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

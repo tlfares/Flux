@@ -113,6 +113,8 @@ final class Catalog {
             apply(cached)
             // A playlist may have no films or series at all.
             let complete = cached.isPartial != true && (!client.isPanel || (!cached.live.isEmpty && !cached.movies.isEmpty && !cached.series.isEmpty))
+                // The free channels from before other countries came: fetched again.
+                && (client.credentials.source != .free || cached.live.categories.contains { $0.name.hasPrefix("|US|") })
             if Date().timeIntervalSince(cached.date) < Self.maxAge, complete { return }
         }
         await refresh(client)
@@ -205,11 +207,13 @@ final class Catalog {
         self.snapshot = snapshot
         options = GuideOptions.current
         let options = options
-        live = snapshot.live
+        var snap = snapshot
+        // The free account's channels: the countries the setting asks for.
+        if !usesFreeChannels, loadedAccount != nil { snap.live = FreeChannels.shown(snapshot.live, scope: options.freeScope) }
+        live = snap.live
         movies = snapshot.movies
         series = snapshot.series
         updated = snapshot.date == .distantPast ? nil : snapshot.date
-        let snap = snapshot
         let free = usesFreeChannels && options.prefersFree ? freeChannels : []
         isIndexing = !snapshot.live.isEmpty || !snapshot.movies.isEmpty || !snapshot.series.isEmpty
         indexing?.cancel()

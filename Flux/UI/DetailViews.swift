@@ -81,8 +81,8 @@ struct MovieDetailView: View {
                     } else if details == nil {
                         ProgressView().frame(maxWidth: .infinity)
                     }
-                    if let director = details?.director { credit("Réalisation", director) }
-                    if let cast = details?.cast { credit("Avec", cast) }
+                    if let director = details?.director { credit(String(localized: "Réalisation"), director) }
+                    if let cast = details?.cast { credit(String(localized: "Avec"), cast) }
                 }
                 .padding(20)
                 .frame(maxWidth: 820, alignment: .leading)
@@ -149,7 +149,7 @@ struct MovieDetailView: View {
             if let progress, resumable {
                 HStack(spacing: 10) {
                     ProgressView(value: progress.fraction).tint(.accentColor).frame(maxWidth: 200)
-                    Text(Duration.seconds(max(0, progress.duration - progress.position)).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)) + " restantes")
+                    Text(Duration.seconds(max(0, progress.duration - progress.position)).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)) + String(localized: " restantes"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -179,7 +179,7 @@ struct SeriesDetailView: View {
                         Button {
                             if let client = account.client { player.play(next, of: series, client: client, library: library) }
                         } label: {
-                            Label(library.progress[Library.key(.series, next.id)] == nil ? "S\(next.season) E\(next.number)" : "Reprendre S\(next.season) E\(next.number)",
+                            Label(library.progress[Library.key(.series, next.id)] == nil ? String(localized: "S\(next.season) E\(next.number)") : String(localized: "Reprendre S\(next.season) E\(next.number)"),
                                   systemImage: "play.fill")
                                 .font(.headline)
                                 .frame(maxWidth: 260)
@@ -235,7 +235,7 @@ struct SeriesDetailView: View {
     private var facts: [String] {
         var f: [String] = []
         if let year = details?.year ?? series.year { f.append(year) }
-        if !seasons.isEmpty { f.append(seasons.count == 1 ? "1 saison" : "\(seasons.count) saisons") }
+        if !seasons.isEmpty { f.append(seasons.count == 1 ? String(localized: "1 saison") : String(localized: "\(seasons.count) saisons")) }
         if let genre = details?.genre { f.append(genre) }
         if let rating = series.rating { f.append("★ " + rating.formatted(.number.precision(.fractionLength(1)))) }
         return f
@@ -259,7 +259,7 @@ struct SeriesDetailView: View {
         if seasons.count <= 4, sizeClass == .compact || seasons.count <= 6 {
             if seasons.count > 1 {
                 GlassSegmentedPicker("Saison", options: seasons, selection: Binding(get: { season ?? seasons[0] }, set: { season = $0 }),
-                                     title: { "Saison \($0)" })
+                                     title: { String(localized: "Saison \($0)") })
             }
         } else {
             ScrollView(.horizontal) {

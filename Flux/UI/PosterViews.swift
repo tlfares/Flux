@@ -81,8 +81,8 @@ struct MoviesView: View {
 
     var body: some View {
         PosterBrowser(
-            title: "Films", empty: "Aucun film", symbol: "film",
-            categories: catalog.movies.categories, isEmpty: catalog.movies.isEmpty,
+            title: String(localized: "Films"), empty: String(localized: "Aucun film"), symbol: "film",
+            categories: catalog.movies.categories, kind: .movie, isEmpty: catalog.movies.isEmpty,
             items: movies, selection: $selection, showsRecent: true
         ) { movie in
             PosterCard(title: DisplayName.clean(movie.name), image: movie.poster,
@@ -115,8 +115,8 @@ struct SeriesListView: View {
 
     var body: some View {
         PosterBrowser(
-            title: "Séries", empty: "Aucune série", symbol: "tv",
-            categories: catalog.series.categories, isEmpty: catalog.series.isEmpty,
+            title: String(localized: "Séries"), empty: String(localized: "Aucune série"), symbol: "tv",
+            categories: catalog.series.categories, kind: .series, isEmpty: catalog.series.isEmpty,
             items: series, selection: $selection, showsRecent: false
         ) { show in
             PosterCard(title: DisplayName.clean(show.name), image: show.cover,
@@ -133,6 +133,7 @@ private struct PosterBrowser<Item: Identifiable & Hashable, Card: View>: View {
     let empty: String
     let symbol: String
     let categories: [Category]
+    let kind: MediaKind
     let isEmpty: Bool
     let items: Pinned<Item>
     @Binding var selection: String
@@ -149,7 +150,7 @@ private struct PosterBrowser<Item: Identifiable & Hashable, Card: View>: View {
             // The chips open the list, under the title, and scroll away with it.
             LazyVStack(spacing: 0) {
                 if !isEmpty {
-                    CategoryBar(categories: categories, selection: $selection, showsRecent: showsRecent, showsFavorites: style == .separate)
+                    CategoryBar(categories: categories, kind: kind, selection: $selection, showsRecent: showsRecent, showsFavorites: style == .separate)
                 }
                 if isEmpty {
                     CatalogState(empty: empty).containerRelativeFrame(.vertical)

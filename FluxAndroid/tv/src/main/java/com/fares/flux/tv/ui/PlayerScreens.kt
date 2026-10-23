@@ -1,5 +1,9 @@
 package com.fares.flux.tv.ui
 
+import com.fares.flux.core.Backdrop
+import com.fares.flux.core.rememberVideoBackdrop
+import com.fares.flux.core.videoGlass
+
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
@@ -31,6 +35,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.ClosedCaptionDisabled
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.runtime.Composable
@@ -69,6 +75,7 @@ import com.fares.flux.core.Favorite
 import com.fares.flux.core.MediaKind
 import com.fares.flux.core.Programme
 import com.fares.flux.core.nowSeconds
+import com.fares.flux.core.tr
 import kotlinx.coroutines.delay
 
 /** The picture alone, for the live screen, which draws its own controls. */
@@ -103,6 +110,8 @@ fun LiveScreen() {
     val app = LocalApp.current
     var showsBanner by remember { mutableStateOf(true) }
     var showsList by remember { mutableStateOf(false) }
+    // What left opens with the banner up: "menu" (both to choose from), "streams" or "subtitles".
+    var picking by remember { mutableStateOf<String?>(null) }
     var bannerShownAt by remember { mutableStateOf(System.currentTimeMillis()) }
     val focus = remember { FocusRequester() }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
@@ -121,7 +130,7 @@ fun LiveScreen() {
         val group = player.channel ?: return@LaunchedEffect
         app.accounts.client?.let { app.epg.load(group, it, 4) }
     }
-    LaunchedEffect(showsList) { if (!showsList) runCatching { focus.requestFocus() } }
+    LaunchedEffect(showsList, picking) { if (!showsList && picking == null) runCatching { focus.requestFocus() } }
 
     BackHandler {
         when {
@@ -141,7 +150,14 @@ fun LiveScreen() {
                     Key.DirectionUp, Key.ChannelDown -> { player.zap(-1); true }
                     Key.DirectionDown, Key.ChannelUp -> { player.zap(1); true }
                     Key.DirectionRight -> { showsList = true; true }
-                    Key.DirectionLeft -> { show(true); true }
+                    // Left brings the banner up; with it up, the channel's other streams and the subtitles.
+                    Key.DirectionLeft -> {
+                        val streams = player.channel?.hasChoice == true
+                        val subtitles = player.textTracks.isNotEmpty()
+                        if (!showsBanner || !(streams || subtitles)) show(true)
+                        else picking = if (streams && subtitles) "menu" else if (streams) "streams" else "subtitles"
+                        true
+                    }
                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { show(!showsBanner); true }
                     else -> when (e.key.nativeKeyCode) {
                         AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, AndroidKeyEvent.KEYCODE_MEDIA_PLAY, AndroidKeyEvent.KEYCODE_MEDIA_PAUSE -> {
@@ -155,11 +171,11 @@ fun LiveScreen() {
     ) {
         VideoSurface(controls = false, modifier = Modifier.fillMaxSize()) { playerView = it }
         if (player.isBuffering && player.error == null) {
-            Text("Chargement…", Modifier.align(Alignment.Center), color = Secondary)
+            Text(tr("Chargement…", "Loading…"), Modifier.align(Alignment.Center), color = Secondary)
         }
         player.error?.let { error ->
             Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Pas d’image", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text(tr("Pas d’image", "No picture"), fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 Text(error, color = Secondary)
             }
         }
@@ -170,6 +186,28 @@ fun LiveScreen() {
         if (player.isPaused) {
             Box(Modifier.align(Alignment.Center).size(70.dp).background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.Pause, null, Modifier.size(34.dp), tint = Color.White)
+            }
+        }
+        fun done() { picking = null; show(true) }
+        when (picking) {
+            "menu" -> ChoiceDialog(tr("Options", "Options"), listOf(
+                "streams" to tr("Flux · ${player.variant?.quality?.title ?: ""}", "Stream · ${player.variant?.quality?.title ?: ""}"),
+                "subtitles" to tr("Sous-titres · ${player.textTrack?.label ?: "désactivés"}", "Subtitles · ${player.textTrack?.label ?: "off"}"),
+            ), "", ::done) { picking = it }
+            "streams" -> {
+                val variants = player.channel?.variants.orEmpty()
+                ChoiceDialog(tr("Regarder en", "Watch in"), variants.map { "${it.id}" to it.quality.label }, "${player.variant?.id}", ::done) { id ->
+                    variants.firstOrNull { "${it.id}" == id }?.takeIf { it.id != player.variant?.id }?.let(player::pick)
+                    done()
+                }
+            }
+            "subtitles" -> {
+                val tracks = player.textTracks
+                ChoiceDialog(tr("Sous-titres", "Subtitles"), listOf("off" to tr("Désactivés", "Off")) + tracks.mapIndexed { i, t -> "$i" to t.label },
+                    player.textTrack?.let { "${tracks.indexOf(it)}" } ?: "off", ::done) { id ->
+                    player.selectText(id.toIntOrNull()?.let { tracks.getOrNull(it) })
+                    done()
+                }
             }
         }
         AnimatedVisibility(showsList, Modifier.align(Alignment.CenterStart),
@@ -186,7 +224,7 @@ fun LiveScreen() {
 
 /** The banner over the bottom of the picture: the channel, what's on, how far it's got and what's next. */
 @Composable
-private fun LiveBanner(backdrop: VideoBackdrop) {
+private fun LiveBanner(backdrop: Backdrop) {
     val player = LocalTVPlayer.current
     val app = LocalApp.current
     val group = player.channel ?: return
@@ -217,13 +255,22 @@ private fun LiveBanner(backdrop: VideoBackdrop) {
                     Row(Modifier.background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Dot()
-                        Text("EN DIRECT", fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        Text(tr("EN DIRECT", "LIVE"), fontSize = 11.sp, fontWeight = FontWeight.Black)
                     }
                     Text(group.name, color = Secondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     val variant = player.variant
                     if (variant != null && group.hasChoice) {
-                        Text(variant.quality.label, Modifier.background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(50)).padding(horizontal = 6.dp, vertical = 2.dp),
+                        Text(variant.quality.title, Modifier.background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(50)).padding(horizontal = 6.dp, vertical = 2.dp),
                             fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    // Only for streams that have some: left opens the choice. In
+                    // the line, so it never sits over the summary.
+                    if (player.textTracks.isNotEmpty()) {
+                        Row(Modifier.background(Color.White.copy(alpha = 0.14f), RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Icon(if (player.textTrack != null) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionDisabled, null, Modifier.size(14.dp), tint = Color.White)
+                            Text(player.textTrack?.label ?: tr("Sous-titres désactivés", "Subtitles off"), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        }
                     }
                 }
                 Text(now?.title ?: group.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -232,19 +279,27 @@ private fun LiveBanner(backdrop: VideoBackdrop) {
                     LiveProgress(now, Modifier.weight(1f, fill = false).width(260.dp), height = 3.5.dp)
                     Text(remaining(now), color = Secondary, fontSize = 13.sp)
                 }
-                next?.let { Text("À suivre · ${Programme.clock(it.start)}  ${it.title}", color = Secondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                next?.let { Text(tr("À suivre · ${Programme.clock(it.start)}  ${it.title}", "Up next · ${Programme.clock(it.start)}  ${it.title}"), color = Secondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
             now?.summary?.let {
                 Text(it, Modifier.width(260.dp), color = Secondary, fontSize = 13.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
             }
         }
-        Text("▲▼ Chaîne  ·  ▶ Liste des chaînes", Modifier.align(Alignment.BottomEnd).padding(end = 62.dp, bottom = 36.dp), color = Tertiary, fontSize = 10.sp)
+        val streams = group.hasChoice
+        val subtitles = player.textTracks.isNotEmpty()
+        Text(tr("▲▼ Chaîne  ·  ▶ Liste des chaînes", "▲▼ Channel  ·  ▶ Channel list") + when {
+            streams && subtitles -> tr("  ·  ◀ Flux et sous-titres", "  ·  ◀ Stream and subtitles")
+            streams -> tr("  ·  ◀ Changer de flux", "  ·  ◀ Change stream")
+            subtitles -> tr("  ·  ◀ Sous-titres", "  ·  ◀ Subtitles")
+            else -> ""
+        }, Modifier.align(Alignment.BottomEnd).padding(end = 62.dp, bottom = 36.dp), color = Tertiary, fontSize = 10.sp)
     }
 }
 
 private fun remaining(p: Programme): String {
     val minutes = maxOf(0, ((p.end - nowSeconds()) / 60).toInt())
-    return if (minutes >= 60) "${minutes / 60} h ${"%02d".format(minutes % 60)} restantes" else "$minutes min restantes"
+    return if (minutes >= 60) tr("${minutes / 60} h ${"%02d".format(minutes % 60)} restantes", "${minutes / 60} h ${"%02d".format(minutes % 60)} left")
+        else tr("$minutes min restantes", "$minutes min left")
 }
 
 /** The channels down the left of the picture, the one playing in focus. */
@@ -261,14 +316,14 @@ private fun ChannelList(close: () -> Unit) {
     Column(Modifier.width(390.dp).fillMaxHeight().padding(top = 30.dp, start = 35.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FocusRow(onClick = { favoritesOnly = false }, isCurrent = !favoritesOnly, shape = RoundedCornerShape(50)) {
-                Text("Toutes les chaînes", Modifier.padding(horizontal = 13.dp, vertical = 6.dp), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(tr("Toutes les chaînes", "All channels"), Modifier.padding(horizontal = 13.dp, vertical = 6.dp), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
             FocusRow(onClick = { favoritesOnly = true }, isCurrent = favoritesOnly, shape = RoundedCornerShape(50)) {
-                Text("Favoris", Modifier.padding(horizontal = 13.dp, vertical = 6.dp), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(tr("Favoris", "Favorites"), Modifier.padding(horizontal = 13.dp, vertical = 6.dp), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
         if (channels.isEmpty()) {
-            Text(if (favoritesOnly) "Aucune chaîne favorite." else "Aucune chaîne.", color = Secondary, modifier = Modifier.padding(top = 20.dp))
+            Text(if (favoritesOnly) tr("Aucune chaîne favorite.", "No favorite channels.") else tr("Aucune chaîne.", "No channels."), color = Secondary, modifier = Modifier.padding(top = 20.dp))
         }
         LazyColumn(state = state, contentPadding = PaddingValues(vertical = 8.dp, horizontal = 6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             items(channels, key = { it.id }) { group ->

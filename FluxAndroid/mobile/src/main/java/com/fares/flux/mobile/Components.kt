@@ -1,5 +1,21 @@
 package com.fares.flux.mobile
 
+import androidx.compose.animation.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.fares.flux.core.*
+import androidx.compose.ui.graphics.*
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.ui.draw.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.*
+import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.interaction.*
+import androidx.compose.runtime.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -58,6 +74,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.offset
 import coil.request.ImageRequest
 import com.fares.flux.core.AppState
 import com.fares.flux.core.Category
@@ -69,21 +88,26 @@ import com.fares.flux.core.MediaKind
 import com.fares.flux.core.Programme
 import com.fares.flux.core.TVPlayer
 import com.fares.flux.core.nowSeconds
+import com.fares.flux.core.tr
 import kotlinx.coroutines.delay
 
-val FluxBlue = Color(0xFF0F9EFF)
+/** FluxTint.blue, Display P3 (0.10, 0.62, 1.0), as iOS draws it: #00A1FF. */
+val FluxBlue = Color(0xFF00A1FF)
 val FluxViolet = Color(0xFF4F22DF)
 val BrandTop = Color(0xFF0F9EFF)
 val BrandBottom = Color(0xFF4F22DF)
 /** Light or dark, from the setting or the system; set by FluxTheme before anything draws. */
 object Palette { var dark by androidx.compose.runtime.mutableStateOf(true) }
 
-/** The background: black or white, nothing else (the colors are the content's). */
-val Background get() = if (Palette.dark) Color.Black else Color.White
-/** The ink of text and rims: white on black, black on white. */
+/** Behind every screen, as iOS's screenBackground: black in dark mode, the
+ *  grouped grey in light mode, so the glass cards stand out in both. */
+val Background get() = if (Palette.dark) Color.Black else Color(0xFFF2F2F7)
+/** iOS's label colors: white or black, then secondaryLabel and tertiaryLabel. */
 val Ink get() = if (Palette.dark) Color.White else Color.Black
-val Secondary get() = Ink.copy(alpha = if (Palette.dark) 0.6f else 0.55f)
-val Tertiary get() = Ink.copy(alpha = if (Palette.dark) 0.38f else 0.35f)
+val Secondary get() = if (Palette.dark) Color(0x99EBEBF5) else Color(0x993C3C43)
+val Tertiary get() = if (Palette.dark) Color(0x4DEBEBF5) else Color(0x4D3C3C43)
+/** iOS's separator, between rows of a card. */
+val Separator get() = if (Palette.dark) Color(0x99545458) else Color(0x4A3C3C43)
 val Card get() = Ink.copy(alpha = if (Palette.dark) 0.045f else 0.035f)
 
 val LocalApp = staticCompositionLocalOf<AppState> { error("AppState") }
@@ -104,6 +128,7 @@ fun FluxTheme(appearance: String = "system", content: @Composable () -> Unit) {
             background = Color.White, surface = Color.White, onBackground = Color.Black, onSurface = Color.Black,
             surfaceContainer = Color(0xFFF2F2F7), surfaceContainerHigh = Color(0xFFE9E9EF), secondaryContainer = FluxBlue.copy(alpha = 0.18f),
         ),
+        typography = IOSTypography,
         content = content,
     )
 }
@@ -115,7 +140,8 @@ fun FluxLogo(size: Dp) {
         Modifier.size(size).clip(RoundedCornerShape(size * 0.225f))
             .background(Brush.verticalGradient(listOf(BrandTop, BrandBottom))),
     ) {
-        Image(painterResource(com.fares.flux.core.R.drawable.ic_launcher_glass), null, Modifier.fillMaxSize())
+        // The launcher's art keeps the adaptive icon's margin: drawn larger, as iOS's icon.
+        Image(painterResource(com.fares.flux.core.R.drawable.ic_launcher_glass), null, Modifier.fillMaxSize().scale(1.45f))
     }
 }
 
@@ -134,9 +160,9 @@ fun RemoteImage(url: String?, modifier: Modifier = Modifier, contentScale: Conte
 }
 
 @Composable
-fun ChannelLogo(group: ChannelGroup, width: Dp = 46.dp, height: Dp = 30.dp, framed: Boolean = true) {
+fun ChannelLogo(group: ChannelGroup, width: Dp = 46.dp, height: Dp = 30.dp, framed: Boolean = true, modifier: Modifier = Modifier) {
     Box(
-        (if (framed) Modifier.background(Ink.copy(alpha = 0.06f), RoundedCornerShape(11.dp)).padding(7.dp) else Modifier).size(width, height),
+        modifier.then(if (framed) Modifier.background(Ink.copy(alpha = 0.06f), RoundedCornerShape(11.dp)).padding(7.dp) else Modifier).size(width, height),
         contentAlignment = Alignment.Center,
     ) {
         if (group.icon == null) Text(group.name.take(2).uppercase(), color = Secondary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -161,9 +187,9 @@ object Categories {
     const val RECENT = "_recent"
 
     fun entries(categories: List<Category>, recent: Boolean): List<Pair<String, String>> {
-        val list = mutableListOf(FAVORITES to "Favoris")
-        if (recent) list.add(RECENT to "Récents")
-        list.add(ALL to "Tout")
+        val list = mutableListOf(FAVORITES to tr("Favoris", "Favorites"))
+        if (recent) list.add(RECENT to tr("Récents", "Recent"))
+        list.add(ALL to tr("Tout", "All"))
         return list + categories.map { it.id to it.name }
     }
 }
@@ -178,55 +204,6 @@ fun AppState.channels(selection: String): List<ChannelGroup> {
     }
 }
 
-/** The chips above a list, as on iOS: a list button, then the categories
- *  sliding in one track. */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Composable
-fun CategoryBar(entries: List<Pair<String, String>>, selection: String, onSelect: (String) -> Unit) {
-    var showsList by remember { mutableStateOf(false) }
-    val state = rememberLazyListState()
-    LaunchedEffect(selection, entries.size) {
-        val i = entries.indexOfFirst { it.first == selection }
-        // The chips in front show from the start; the others come into view.
-        if (i in 0..2) state.animateScrollToItem(0) else if (i > 2) state.animateScrollToItem(maxOf(0, i - 1))
-    }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.size(44.dp).glassPanel(RoundedCornerShape(50)).clickable { showsList = true }, contentAlignment = Alignment.Center) {
-            Icon(Icons.AutoMirrored.Filled.List, "Toutes les catégories")
-        }
-        LazyRow(Modifier.height(44.dp).glassPanel(RoundedCornerShape(50)), state = state,
-            contentPadding = PaddingValues(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            items(entries, key = { it.first }) { (id, name) ->
-                val selected = id == selection
-                Row(
-                    Modifier.height(36.dp).clip(RoundedCornerShape(50))
-                        .background(if (selected) Brush.horizontalGradient(listOf(FluxBlue, FluxViolet)) else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent)))
-                        .clickable { onSelect(id) }.padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    if (id == Categories.FAVORITES) Icon(Icons.Default.Star, null, Modifier.size(13.dp))
-                    if (id == Categories.RECENT) Icon(Icons.Default.AccessTime, null, Modifier.size(13.dp))
-                    Text(DisplayName.clean(name), fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
-                }
-            }
-        }
-    }
-    if (showsList) {
-        ModalBottomSheet(onDismissRequest = { showsList = false }) {
-            androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().height(480.dp)) {
-                items(entries, key = { it.first }) { (id, name) ->
-                    Row(Modifier.fillMaxWidth().clickable { onSelect(id); showsList = false }.padding(horizontal = 20.dp, vertical = 14.dp)) {
-                        Text(DisplayName.clean(name), Modifier.weight(1f))
-                        if (id == selection) Text("✓", color = FluxBlue, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
-}
-
 /** A channel: its logo, what's on, and the quality it comes in. A long
  *  press adds it to favorites or picks another stream. */
 @Composable
@@ -235,24 +212,26 @@ fun ChannelRow(group: ChannelGroup, isPlaying: Boolean, play: (ChannelVariant?) 
     val now = app.epg.now(app.epg.source(group))
     var menu by remember { mutableStateOf(false) }
     LaunchedEffect(group.id) { delay(250); app.accounts.client?.let { app.epg.load(group, it) } }
+    val shape = RoundedCornerShape(18.dp)
     Box {
+        // As iOS's: .padding(8), .padding(.trailing, 6), minHeight 60, glass in an 18 pt rectangle.
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-                .background(if (isPlaying) Brush.horizontalGradient(listOf(FluxBlue.copy(alpha = 0.28f), FluxViolet.copy(alpha = 0.28f))) else Brush.horizontalGradient(listOf(Card, Card)))
-                .combinedClickable(onLongClick = { menu = true }) { play(null) }
-                .padding(8.dp).padding(end = 6.dp).heightIn(min = 48.dp),
+            Modifier.fillMaxWidth().pressable().cardGlass(shape)
+                .then(if (isPlaying) Modifier.background(FluxBlue.copy(alpha = 0.25f)) else Modifier)
+                .combinedClickable(remember { MutableInteractionSource() }, indication = null, onLongClick = { menu = true }) { play(null) }
+                .padding(8.dp).padding(end = 6.dp).heightIn(min = 44.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            group.number?.let { Text("$it", Modifier.width(30.dp), color = Secondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-            ChannelLogo(group)
+            group.number?.let { Text("$it", Modifier.padding(start = 2.dp).padding(end = 0.dp).widthIn(min = 28.dp).offset(x = 0.dp), color = Secondary,
+                style = IOS.subheadline.copy(fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+            ChannelLogo(group, modifier = if (group.number != null) Modifier.offset(x = (-4).dp) else Modifier)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(group.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (app.library.isFavorite(Favorite.live(group))) Icon(Icons.Default.Star, null, Modifier.padding(start = 5.dp).size(11.dp), tint = FluxBlue)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(group.name, style = IOS.subheadline.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (app.library.isFavorite(Favorite.live(group))) Icon(Icons.Default.Star, null, Modifier.size(11.dp), tint = FluxBlue)
                 }
                 if (now != null) {
-                    Text(now.title, fontSize = 12.sp, color = Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(now.title, style = IOS.caption, color = Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     LiveProgress(now, Modifier.fillMaxWidth().padding(end = 8.dp), 2.dp)
                 }
             }
@@ -268,7 +247,7 @@ fun QualityBadge(group: ChannelGroup) {
     val best = group.variants[0].quality
     if (best.label == "Standard" && !group.hasChoice) return
     Row(Modifier.background(Ink.copy(alpha = 0.07f), RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 4.dp)) {
-        Text(if (best.label == "Standard") "Auto" else best.label, fontSize = 11.sp, color = Secondary, fontWeight = FontWeight.SemiBold)
+        Text(if (best.label == "Standard") "Auto" else best.title, fontSize = 11.sp, color = Secondary, fontWeight = FontWeight.SemiBold)
         if (group.variants.size > 1) Text(" +${group.variants.size - 1}", fontSize = 11.sp, color = Tertiary, fontWeight = FontWeight.SemiBold)
     }
 }
@@ -278,10 +257,10 @@ fun ChannelMenu(group: ChannelGroup, expanded: Boolean, dismiss: () -> Unit, pla
     val app = LocalApp.current
     DropdownMenu(expanded, dismiss) {
         val favorite = Favorite.live(group)
-        DropdownMenuItem(text = { Text(if (app.library.isFavorite(favorite)) "Retirer des favoris" else "Ajouter aux favoris") },
+        DropdownMenuItem(text = { Text(if (app.library.isFavorite(favorite)) tr("Retirer des favoris", "Remove from favorites") else tr("Ajouter aux favoris", "Add to favorites")) },
             onClick = { app.library.toggleFavorite(favorite); dismiss() })
         if (group.hasChoice) group.variants.forEach { v ->
-            DropdownMenuItem(text = { Text("Regarder en ${v.quality.label}") }, onClick = { play(v); dismiss() })
+            DropdownMenuItem(text = { Text(tr("Regarder en ${v.quality.label}", "Play ${v.quality.title}")) }, onClick = { play(v); dismiss() })
         }
     }
 }
@@ -317,25 +296,36 @@ fun ChannelCard(group: ChannelGroup, isPlaying: Boolean, play: (ChannelVariant?)
                 }
             }
             Text(now?.title ?: group.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(now?.let { "${group.name} · ${it.timeRange}" } ?: "En direct", fontSize = 12.sp, color = Secondary, maxLines = 1,
+            Text(now?.let { "${group.name} · ${it.timeRange}" } ?: tr("En direct", "Live"), fontSize = 12.sp, color = Secondary, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 0.dp))
         }
         ChannelMenu(group, menu, { menu = false }, play)
     }
 }
 
+/** As iOS's PosterCard: a 2:3 poster in 14 pt corners with a faint rim,
+ *  a star in glass when it's a favorite, the progress at its foot, and
+ *  the title under it on two lines. */
 @Composable
-fun Poster(title: String, image: String?, progress: Double? = null, onLongClick: () -> Unit = {}, onClick: () -> Unit) {
-    Column(Modifier.combinedClickable(onLongClick = onLongClick, onClick = onClick), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(Color(0xFF1E1E24))) {
+fun Poster(title: String, image: String?, progress: Double? = null, isFavorite: Boolean = false, onLongClick: () -> Unit = {}, onClick: () -> Unit) {
+    Column(Modifier.pressable().combinedClickable(onLongClick = onLongClick, onClick = onClick), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(14.dp)).background(Ink.copy(alpha = 0.06f))
+                .border(1.dp, Ink.copy(alpha = 0.08f), RoundedCornerShape(14.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Outlined.Theaters, null, Modifier.size(26.dp), tint = Tertiary)
             RemoteImage(image, Modifier.fillMaxSize())
+            if (isFavorite) Box(Modifier.align(Alignment.TopEnd).padding(6.dp).size(24.dp).cardGlass(CircleShape), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Star, null, Modifier.size(12.dp), tint = FluxBlue)
+            }
             if (progress != null && progress > 0) {
-                Box(Modifier.align(Alignment.BottomCenter).padding(7.dp).fillMaxWidth().height(3.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.25f))) {
+                Box(Modifier.align(Alignment.BottomCenter).padding(8.dp).fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.25f))) {
                     Box(Modifier.fillMaxHeight().fillMaxWidth(progress.toFloat()).background(FluxBlue))
                 }
             }
         }
-        Text(title, fontSize = 12.sp, maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(title, style = IOS.caption.copy(fontWeight = FontWeight.Medium), maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -346,8 +336,8 @@ fun LoadingOrEmpty(empty: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         if (c.isLoading || c.isStarting || c.isIndexing) androidx.compose.material3.CircularProgressIndicator()
         else Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(if (c.error == null) empty else "Impossible de charger", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text(c.error ?: "Le fournisseur n’a rien envoyé cette fois.", color = Secondary)
+            Text(if (c.error == null) empty else tr("Impossible de charger", "Couldn’t load"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(c.error ?: tr("Le fournisseur n’a rien envoyé cette fois.", "The provider didn’t send anything this time."), color = Secondary)
         }
     }
 }

@@ -31,6 +31,10 @@ data class CatalogSection<T>(
 /** How good a stream claims to be, read from its name. */
 @Serializable
 data class Quality(val rank: Int, val label: String) {
+    /** The label as shown: `label` stays French, as remembered picks and saved guides keep it. */
+    val title: String
+        get() = if (isFrench) label else label.replace("Gratuit", "Free").replace("Secours", "Backup").replace(" i/s", " fps")
+
     companion object {
         /** 1 SD … 6 4K. Untagged streams sit with HD. */
         val untagged = Quality(3, "Standard")
@@ -93,8 +97,10 @@ data class ChannelGroup(
     }
 }
 
-enum class QualityPreference(val raw: String, val title: String) {
-    BEST("best", "Maximale"), HD("hd", "HD"), SAVER("saver", "Économie");
+enum class QualityPreference(val raw: String, private val french: String, private val english: String) {
+    BEST("best", "Maximale", "Best"), HD("hd", "HD", "HD"), SAVER("saver", "Économie", "Data saver");
+
+    val title: String get() = tr(french, english)
 
     companion object {
         const val STORAGE_KEY = "live.quality"
@@ -103,11 +109,19 @@ enum class QualityPreference(val raw: String, val title: String) {
 }
 
 /** `prefersFree`: the free channels' streams first for the channels the
- *  provider has too (France 2, Arte, BFM TV…), the provider's kept as backups. */
-data class GuideOptions(val showsShifted: Boolean = false, val numbering: ChannelNumbering = ChannelNumbering.PROVIDER, val prefersFree: Boolean = true) {
+ *  provider has too (France 2, Arte, BFM TV…), the provider's kept as backups.
+ *  `freeCountry`: the country the free channels' account shows ("FR", "US",
+ *  "UK"), or "ALL". */
+data class GuideOptions(
+    val showsShifted: Boolean = false,
+    val numbering: ChannelNumbering = ChannelNumbering.PROVIDER,
+    val prefersFree: Boolean = true,
+    val freeCountry: String = FreeChannels.ALL,
+) {
     companion object {
         const val SHIFTED_KEY = "live.showsShifted"
         const val PREFERS_FREE_KEY = "live.prefersFree"
+        const val FREE_COUNTRIES_KEY = "free.countries"
     }
 }
 
@@ -125,6 +139,9 @@ class LiveGuide private constructor(
         if (categoryID == null) groups else (byCategory[categoryID] ?: emptyList()).map { groups[it] }
 
     fun group(key: String): ChannelGroup? = byKey[key]?.let { groups[it] }
+
+    /** How many channels a category has, without listing them. */
+    fun count(categoryID: String): Int = byCategory[categoryID]?.size ?: 0
 
     /** Kept on disk, so Accueil and Direct show at once at the next start. */
     @Serializable

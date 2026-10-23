@@ -10,9 +10,19 @@ struct RootView: View {
     @AppStorage(FavoritesStyle.sharedKey) private var sharesFavorites = true
     @AppStorage(GuideOptions.shiftedKey) private var showsShifted = false
     @AppStorage(GuideOptions.prefersFreeKey) private var prefersFree = true
+    @AppStorage(FreeScope.storageKey) private var freeScope = FreeScope.detected
     @AppStorage(ChannelNumbering.storageKey) private var numbering = ChannelNumbering.default
+    @AppStorage(GuideOptions.tabKey) private var showsGuideTab = false
+    @AppStorage(GuideOptions.moviesTabKey) private var showsMoviesTab = true
+    @AppStorage(GuideOptions.seriesTabKey) private var showsSeriesTab = true
     @Environment(EPG.self) private var epg
     @State private var openGuide: [String: [Programme]] = [:]
+
+    /// Off unless asked for, and never empty: the free American channels
+    /// have no guide.
+    private var showsGuide: Bool {
+        showsGuideTab && epg.hasGuide(catalog.guide.groups, isPanel: account.client?.isPanel ?? true)
+    }
 
     var body: some View {
         Group {
@@ -21,13 +31,18 @@ struct RootView: View {
                     Tab("Direct", systemImage: "dot.radiowaves.left.and.right", value: RootTab.live) {
                         NavigationStack { LiveView() }
                     }
+                    if showsGuide {
+                        Tab("Guide", systemImage: "calendar.day.timeline.left", value: RootTab.guide) {
+                            NavigationStack { GuideView() }
+                        }
+                    }
                     // A playlist without films or series (the free channels) shows none.
-                    if client.isPanel || !catalog.movies.isEmpty {
+                    if showsMoviesTab, client.isPanel || !catalog.movies.isEmpty {
                         Tab("Films", systemImage: "film", value: RootTab.movies) {
                             NavigationStack { MoviesView() }
                         }
                     }
-                    if client.isPanel || !catalog.series.isEmpty {
+                    if showsSeriesTab, client.isPanel || !catalog.series.isEmpty {
                         Tab("Séries", systemImage: "tv", value: RootTab.series) {
                             NavigationStack { SeriesListView() }
                         }
@@ -53,6 +68,10 @@ struct RootView: View {
                         .environment(player)
                 }
                 .tabBarMinimizeBehavior(.onScrollDown)
+                .onChange(of: showsGuide, initial: true) { if !showsGuide, tab == .guide { tab = .live } }
+                .onChange(of: [showsMoviesTab, showsSeriesTab], initial: true) {
+                    if (!showsMoviesTab && tab == .movies) || (!showsSeriesTab && tab == .series) { tab = .live }
+                }
                 .task(id: client.credentials) {
                     await catalog.start(client)
                     await account.refreshInfo()
@@ -77,9 +96,13 @@ struct RootView: View {
         .onChange(of: [account.activeID?.uuidString, String(sharesFavorites)], initial: true) {
             library.use(account: account.activeID, sharesFavorites: sharesFavorites)
         }
+        .onChange(of: account.credentials, initial: true) {
+            CategoryLayouts.shared.account = account.credentials.map(Catalog.accountKey) ?? ""
+        }
         .onChange(of: showsShifted) { catalog.optionsChanged() }
         .onChange(of: prefersFree) { catalog.optionsChanged() }
         .onChange(of: numbering) { catalog.optionsChanged() }
+        .onChange(of: freeScope) { catalog.optionsChanged() }
         .task { openGuide = await OpenGuide.load() }
         .onChange(of: [catalog.guide.groups.count, openGuide.count]) {
             epg.useOpenGuide(openGuide, for: catalog.guide.groups)
@@ -87,7 +110,7 @@ struct RootView: View {
     }
 }
 
-enum RootTab: String, Hashable { case live, movies, series, settings, search }
+enum RootTab: String, Hashable { case live, guide, movies, series, settings, search }
 
 /// While the catalogue first loads, or when it couldn't.
 struct CatalogState: View {
